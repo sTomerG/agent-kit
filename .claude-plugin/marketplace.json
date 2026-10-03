@@ -1,0 +1,15 @@
+{
+  "name": "agent-kit",
+  "description": "Open-source mods and other extensions for Claude Code",
+  "owner": {
+    "name": "Tomer Gabay",
+    "url": "https://github.com/sTomerG"
+  },
+  "plugins": [
+    {
+      "name": "crab-cam",
+      "source": "./plugins/crab-cam",
+      "description": "Mod: a crab above the prompt acts out what Claude is doing, with a meter for context and rate limits"
+    }
+  ]
+}
