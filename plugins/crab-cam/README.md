@@ -15,6 +15,8 @@ claude plugin install crab-cam@agent-kit
 
 Requires Claude Code v2.1.287 or later; tested with v2.1.288.
 
+To get new versions, run `claude plugin update crab-cam@agent-kit`, or enable auto-update for the marketplace under `/plugin` → Marketplaces.
+
 ## Commands
 
 | Command | What it does |
