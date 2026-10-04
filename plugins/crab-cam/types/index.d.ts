@@ -4,6 +4,7 @@ export type Activity =
   | 'reading'
   | 'coding'
   | 'writing'
+  | 'designing'
   | 'terminal'
   | 'searching'
   | 'web'

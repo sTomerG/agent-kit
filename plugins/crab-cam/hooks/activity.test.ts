@@ -20,6 +20,7 @@ const COMMANDS: readonly (readonly [string, Activity])[] = [
   ["sed -i '' 's/a/b/' file.ts", 'coding'],
   ["cat > file.ts <<'EOF'\nconst a = 1\nEOF", 'coding'],
   ['echo hello >> notes.md', 'writing'],
+  ["sed -i '' 's/red/blue/' theme.css", 'designing'],
   ["cat > docs/README <<'EOF'\n# Title\nEOF", 'writing'],
   ["sed -i '' 's/a/b/' CHANGELOG.md", 'writing'],
   ['echo hello', 'terminal'],
@@ -49,6 +50,16 @@ test('a tool is known by its name', () => {
   expect(activityOf('Edit', { file_path: 'a.ts' })).toBe('coding')
   expect(activityOf('Edit', { file_path: '/repo/CLAUDE.md' })).toBe('memory')
   expect(activityOf('Edit', { file_path: '/repo/README.md' })).toBe('writing')
+  expect(activityOf('Edit', { file_path: 'src/app.css' })).toBe('designing')
+  expect(activityOf('Write', { file_path: 'assets/logo.svg' })).toBe('designing')
+  expect(activityOf('Write', { file_path: 'scratchpad/tide-table.html' })).toBe('coding')
+  expect(activityOf('Artifact', { action: 'quickstart', intent: 'other' })).toBe('designing')
+  expect(activityOf('Artifact', { file_path: 'scratchpad/tide-table.html' })).toBe('sharing')
+  expect(activityOf('Edit', { file_path: 'src/App.tsx' })).toBe('coding')
+  expect(activityOf('Skill', { skill: 'artifact-design' })).toBe('designing')
+  expect(activityOf('Skill', { skill: 'code-review' })).toBe('skill')
+  expect(activityOf('DesignSync')).toBe('designing')
+  expect(activityOf('mcp__figma__get_file')).toBe('designing')
   expect(activityOf('Write', { file_path: 'notes.txt' })).toBe('writing')
   expect(activityOf('Write', { file_path: 'LICENSE' })).toBe('writing')
   expect(activityOf('Write', { file_path: 'config.json' })).toBe('coding')
@@ -106,15 +117,26 @@ test('an artifact that is only being watched lets the crab rest', () => {
 })
 
 test('a command still being written shows its scene once its first word is in', () => {
-  expect(activityOfStreaming('')).toBe(undefined)
-  expect(activityOfStreaming('{"description": "Read the notes", "comm')).toBe(undefined)
-  expect(activityOfStreaming('{"command": "ca')).toBe(undefined)
-  expect(activityOfStreaming('{"command": "cat notes.md')).toBe('reading')
-  expect(activityOfStreaming('{"command": "cd /repo')).toBe(undefined)
-  expect(activityOfStreaming('{"command": "cd /repo && git st')).toBe('git')
-  expect(activityOfStreaming('{"command":"python3 - <<\'EOF\'\\nimport json')).toBe('terminal')
-  expect(activityOfStreaming('{"command": "make bu')).toBe(undefined)
-  expect(activityOfStreaming('{"command": "cat > hooks/activity.ts <<\'EOF\'\\nconst')).toBe('coding')
-  expect(activityOfStreaming('{"command": "cat > notes')).toBe(undefined)
-  expect(activityOfStreaming('{"command": "cat > notes.md <<\'EOF\'\\n# Notes')).toBe('writing')
+  expect(activityOfStreaming('Bash', '')).toBe(undefined)
+  expect(activityOfStreaming('Bash', '{"description": "Read the notes", "comm')).toBe(undefined)
+  expect(activityOfStreaming('Bash', '{"command": "ca')).toBe(undefined)
+  expect(activityOfStreaming('Bash', '{"command": "cat notes.md')).toBe('reading')
+  expect(activityOfStreaming('Bash', '{"command": "cd /repo')).toBe(undefined)
+  expect(activityOfStreaming('Bash', '{"command": "cd /repo && git st')).toBe('git')
+  expect(activityOfStreaming('Bash', '{"command":"python3 - <<\'EOF\'\\nimport json')).toBe('terminal')
+  expect(activityOfStreaming('Bash', '{"command": "make bu')).toBe(undefined)
+  expect(activityOfStreaming('Bash', '{"command": "cat > hooks/activity.ts <<\'EOF\'\\nconst')).toBe('coding')
+  expect(activityOfStreaming('Bash', '{"command": "cat > notes')).toBe(undefined)
+  expect(activityOfStreaming('Bash', '{"command": "cat > notes.md <<\'EOF\'\\n# Notes')).toBe('writing')
+})
+
+test('a file on its way shows the scene of the file as soon as its path is in', () => {
+  expect(activityOfStreaming('Write', '')).toBe(undefined)
+  expect(activityOfStreaming('Write', '{"file_path": "scratchpad/tide-table.ht')).toBe(undefined)
+  expect(activityOfStreaming('Write', '{"file_path": "scratchpad/tide-table.html", "content": "<ti')).toBe('coding')
+  expect(activityOfStreaming('Write', '{"file_path": "src/theme.css", "content": ":ro')).toBe('designing')
+  expect(activityOfStreaming('Edit', '{"file_path": "hooks/activity.ts"')).toBe('coding')
+  expect(activityOfStreaming('Write', '{"file_path": "notes.md"')).toBe('writing')
+  expect(activityOfStreaming('Skill', '{"skill": "artifact-design"')).toBe('designing')
+  expect(activityOfStreaming('Artifact', '{"action": "quickstart"')).toBe('designing')
 })

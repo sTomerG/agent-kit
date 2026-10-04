@@ -43,6 +43,7 @@ The scene follows the tool Claude calls. A shell command is read for what it doe
 | making a plan | plan mode and task lists |
 | loading a skill | `Skill` |
 | writing text | an edit to a text file: `.md`, `.txt`, `.rst`, `README`, `CHANGELOG` and the like |
+| designing | an edit to a stylesheet or an `.svg`, a design or Figma tool, a design skill, the start of an artifact |
 | remembering something | an edit to `CLAUDE.md`, `MEMORY.md` or a memory file |
 | sharing something | artifacts and files sent to you |
 | a question for you, waiting for permission | Claude asks, or a permission dialog is open |

@@ -1,6 +1,6 @@
 {
   "name": "crab-cam",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A crab above the prompt acts out what Claude is doing: reading, writing code, thinking, searching and more. A shell beside it shows context and rate-limit usage.",
   "author": {
     "name": "Tomer Gabay",

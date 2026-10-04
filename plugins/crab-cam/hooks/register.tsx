@@ -3,7 +3,7 @@ import type { Elements, EngineInterface, Register, Timer } from 'claude-code'
 
 import type { Activity, Meter, Scene } from '../types'
 import type { Lingering } from './activity'
-import { activityOf, activityOfStreaming, isShell, sceneOfLingering } from './activity'
+import { activityOf, activityOfStreaming, isToldByArgs, sceneOfLingering } from './activity'
 import { meterAlt, meterLines, meterRow, meterSvg, meterWidth } from './meter'
 import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg, sceneRows } from './scenes'
 
@@ -27,6 +27,7 @@ const DEMO: readonly Activity[] = [
   'reading',
   'coding',
   'writing',
+  'designing',
   'terminal',
   'testing',
   'git',
@@ -61,6 +62,7 @@ const LABELS: Record<Activity, string> = {
   reading: 'Claude is reading',
   coding: 'Claude is writing code',
   writing: 'Claude is writing text',
+  designing: 'Claude is designing',
   terminal: 'Claude is running a command',
   searching: 'Claude is searching',
   web: 'Claude is browsing the web',
@@ -489,9 +491,10 @@ export const register: Register = on => {
 
     // A reload in the middle of a turn has no turn.start to go by.
     isWorking = true
-    // The shell calls of this response whose arguments are still arriving, by
-    // block: what has arrived of each, until it settles the scene.
-    const arriving = new Map<number, string>()
+    // The calls of this response whose arguments are still arriving and say
+    // what the call is about, by block: the tool and what has arrived, until
+    // it settles the scene.
+    const arriving = new Map<number, { tool: string; json: string }>()
 
     for await (const chunk of next(e)) {
       if (chunk.kind === 'thinking') {
@@ -506,10 +509,11 @@ export const register: Register = on => {
       } else if (chunk.kind === 'tool') {
         stopMusing()
 
-        // What a command is about shows only in its arguments: the scene
-        // waits for enough of them, rather than passing through a generic one.
-        if (isShell(chunk.name)) {
-          arriving.set(chunk.index, '')
+        // What a command or an edit is about shows only in its arguments: the
+        // scene waits for enough of them, rather than passing through a
+        // generic one.
+        if (isToldByArgs(chunk.name)) {
+          arriving.set(chunk.index, { tool: chunk.name, json: '' })
         } else {
           show($, activityOf(chunk.name))
         }
@@ -517,11 +521,11 @@ export const register: Register = on => {
         const before = arriving.get(chunk.index)
 
         if (before !== undefined) {
-          const json = before + chunk.json
-          const activity = activityOfStreaming(json)
+          const json = before.json + chunk.json
+          const activity = activityOfStreaming(before.tool, json)
 
           if (activity === undefined) {
-            arriving.set(chunk.index, json)
+            arriving.set(chunk.index, { tool: before.tool, json })
           } else {
             arriving.delete(chunk.index)
             show($, activity)

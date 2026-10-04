@@ -231,6 +231,40 @@ export const SCENES: Record<Activity, () => Drawing> = {
     }
   },
 
+  designing: () => {
+    const NAVY = '#4A5F94'
+    const pieces: readonly ((shown: string) => string)[] = [
+      shown => `<polygon points="80,11 93,9 93,41 78,35" fill="${BLUE}" opacity="0">${shown}</polygon>`,
+      shown => `<polygon points="93,9 108,15 106,39 93,41" fill="${YELLOW}" opacity="0">${shown}</polygon>`,
+      shown =>
+        `<g opacity="0">${shown}<circle cx="86" cy="20" r="3.4" fill="${PAPER}"/><circle cx="87" cy="20" r="1.5" fill="${EYE}"/>` +
+        `<ellipse cx="101" cy="27" rx="4.2" ry="3" fill="${PAPER}"/><circle cx="100" cy="27" r="1.6" fill="${EYE}"/></g>`,
+      shown => `<path d="M93,15 L99,27 L92,29" ${stroke(EYE, 1.8)} opacity="0">${shown}</path>`,
+      shown => `<polygon points="84,33 100,35 91,39" fill="${RED}" opacity="0">${shown}</polygon>`,
+    ]
+    const at = (i: number) => 0.04 + i * 0.16
+
+    return {
+      // A beret and a striped shirt: the painter the portrait on the easel is after.
+      pose: {
+        look: 'right',
+        wear:
+          `<rect x="6" y="14.5" width="36" height="2.2" fill="#F5F4EF"/><rect x="6" y="18.6" width="36" height="2.2" fill="#F5F4EF"/>` +
+          `<ellipse cx="21" cy="-1.5" rx="16" ry="5.2" fill="${NAVY}" transform="rotate(-9 21 -1.5)"/>` +
+          `<rect x="20" y="-9.5" width="2.2" height="4" fill="${NAVY}"/>`,
+      },
+      prop:
+        `<path d="M77,46 L71,61 M109,46 L115,61 M93,46 V59" ${stroke('#B89B6A', 2.2)}/>` +
+        `<rect x="68" y="5" width="50" height="41" rx="1.5" fill="${PAPER}" stroke="#B89B6A" stroke-width="2"/>` +
+        pieces
+          .map((piece, i) => piece(loop('opacity', '0;0;1;1', 5, `keyTimes="0;${at(i).toFixed(2)};${(at(i) + 0.05).toFixed(2)};1"`)))
+          .join('') +
+        `<g>${slide('86 28;86 28;100 28;90 20;97 24;92 37;92 37', 5, 'keyTimes="0;0.04;0.2;0.36;0.52;0.68;1"')}` +
+        `<line x1="2" y1="-3" x2="13" y2="-19" ${stroke(SLATE, 3.2)}/>` +
+        `<path d="M-1,2 l1.5,-6 l4.5,3 z" fill="${ORANGE}"/></g>`,
+    }
+  },
+
   terminal: () => ({
     pose: TYPING,
     prop:
@@ -515,6 +549,12 @@ const PROPS: Record<Activity, readonly Frame[]> = {
     ['┌────╮', '│╱   │', '└────┘'],
     ['┌────╮', '│≡≡╱ │', '└────┘'],
     ['┌────╮', '│≡≡≡≡│', '└────┘'],
+  ],
+  designing: [
+    ['┌───┐', '│   │', '└┬─┬┘'],
+    ['┌───┐', '│◐  │', '└┬─┬┘'],
+    ['┌───┐', '│◐◣ │', '└┬─┬┘'],
+    ['┌───┐', '│◐◣◕│', '└┬─┬┘'],
   ],
   terminal: [
     ['┌─────┐', '│$ ▌  │', '▀▀▀▀▀▀▀'],

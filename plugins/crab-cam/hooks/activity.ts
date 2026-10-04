@@ -61,6 +61,8 @@ const INSTALL =
 // that go without one.
 const PROSE =
   /\.(md|mdx|markdown|txt|rst|adoc|asciidoc|org|tex|rtf)$|(^|\/)(README|LICEN[CS]E|CHANGELOG|CONTRIBUTING|AUTHORS|NOTICE|TODO)$/i
+// Files that hold how something looks: stylesheets and drawings.
+const LOOKS = /\.(css|scss|sass|less|svg)$/i
 const MEMORY = /\/memory\/|(^|\/)(CLAUDE|MEMORY)\.md$/
 
 // What may stand before the command that does the work: a change of
@@ -141,7 +143,9 @@ function activityOfCommand(command: string): Activity {
   const line = rest.split('\n')[0] ?? rest
 
   if (name === 'tee' || (name === 'sed' && /\s-i\b/.test(line)) || (WRITERS.has(name) && TO_FILE.test(line))) {
-    return line.split(/\s+/).some(word => PROSE.test(word.replace(/^['"]|['"]$/g, ''))) ? 'writing' : 'coding'
+    const words = line.split(/\s+/).map(word => word.replace(/^['"]|['"]$/g, ''))
+
+    return words.some(word => PROSE.test(word)) ? 'writing' : words.some(word => LOOKS.test(word)) ? 'designing' : 'coding'
   }
 
   return BY_COMMAND[name] ?? 'terminal'
@@ -155,11 +159,34 @@ function commandSoFar(json: string): string | undefined {
   return written?.replace(/\\(.)/g, (_, escaped: string) => (escaped === 'n' ? '\n' : escaped === 't' ? '\t' : escaped))
 }
 
-// Which scene a shell call is while its arguments are still arriving, once
-// what has arrived settles it: a long command is on its way for seconds, and
-// the crab should not sit on the scene before it. Nothing while the command's
-// first word is not whole yet, or says nothing by itself.
-export function activityOfStreaming(json: string): Activity | undefined {
+// The argument that settles the scene of a call to a tool other than the
+// shell: the file an edit is to, the skill loaded, what an artifact call does.
+const TELLING: Record<string, string> = {
+  Edit: 'file_path',
+  MultiEdit: 'file_path',
+  Write: 'file_path',
+  Skill: 'skill',
+  Artifact: 'action',
+}
+
+// A string argument once all of it has arrived.
+function whole(json: string, key: string): string | undefined {
+  return new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`).exec(json)?.[1]?.replace(/\\(.)/g, '$1')
+}
+
+// Which scene a call is while its arguments are still arriving, once what has
+// arrived settles it: a long command or a whole file is on its way for
+// seconds, and the crab should not sit on the scene before it. Nothing while
+// the command's first word is not whole yet, or says nothing by itself.
+export function activityOfStreaming(tool: string, json: string): Activity | undefined {
+  const key = TELLING[tool]
+
+  if (key !== undefined) {
+    const value = whole(json, key)
+
+    return value === undefined ? undefined : activityOf(tool, { [key]: value })
+  }
+
   const command = commandSoFar(json)
 
   if (command === undefined) {
@@ -175,7 +202,7 @@ export function activityOfStreaming(json: string): Activity | undefined {
   const activity = activityOfCommand(command)
 
   // The file a command writes to tells code from prose, and is in once its line is.
-  if ((activity === 'coding' || activity === 'writing') && !command.includes('\n')) {
+  if ((activity === 'coding' || activity === 'writing' || activity === 'designing') && !command.includes('\n')) {
     return undefined
   }
 
@@ -183,9 +210,13 @@ export function activityOfStreaming(json: string): Activity | undefined {
   return activity !== 'terminal' || command.length >= 40 || command.includes('\n') ? activity : undefined
 }
 
-// Whether the scene of a call to this tool depends on its arguments.
-export function isShell(tool: string): boolean {
+function isShell(tool: string): boolean {
   return tool === 'Bash'
+}
+
+// Whether the scene of a call to this tool depends on its arguments.
+export function isToldByArgs(tool: string): boolean {
+  return isShell(tool) || tool in TELLING
 }
 
 // Which scene a call is: by the tool, and for a command or a file by what it
@@ -205,6 +236,21 @@ export function activityOf(tool: string, args?: Readonly<Record<string, unknown>
 
   if (known === 'coding' && typeof path === 'string' && PROSE.test(path)) {
     return 'writing'
+  }
+
+  if (known === 'coding' && typeof path === 'string' && LOOKS.test(path)) {
+    return 'designing'
+  }
+
+  // A design tool or a design skill, whatever else its name says.
+  if (/design|figma/i.test(tool) || (tool === 'Skill' && typeof args?.skill === 'string' && /design/i.test(args.skill))) {
+    return 'designing'
+  }
+
+  // An artifact is designed before it is shared: the quickstart call hands
+  // over the design guidance the page is then written to.
+  if (tool === 'Artifact' && args?.action === 'quickstart') {
+    return 'designing'
   }
 
   if (known !== undefined) {
