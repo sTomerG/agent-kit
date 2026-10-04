@@ -100,7 +100,7 @@ function meterDemo(detailed: boolean): string {
       .map(
         (line, row) =>
           `<text x="${textX}" y="${44 + row * 26}" font-size="15" fill="${DIM}">${line.label}</text>` +
-          `<text x="${textX + 130}" y="${44 + row * 26}" font-size="15" font-weight="600" fill="${TEXT}">${line.value}</text>`,
+          `<text x="${textX + 170}" y="${44 + row * 26}" font-size="15" font-weight="600" fill="${TEXT}" text-anchor="end">${line.value}</text>`,
       )
       .join('')
 
@@ -108,7 +108,7 @@ function meterDemo(detailed: boolean): string {
   })
 
   return detailed
-    ? band(480, 'crab-cam meter with details: the readings in figures beside the shell and the pearls', steps.join(''))
+    ? band(444, 'crab-cam meter with details: the readings in figures beside the shell and the pearls', steps.join(''))
     : band(246, 'crab-cam meter: the shell fills with the context window, the pearls with the rate limits', steps.join(''))
 }
 

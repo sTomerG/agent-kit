@@ -103,9 +103,9 @@ export function meterAlt(meter: Meter): string {
 // gauge that has a reading.
 export function meterLines(meter: Meter): readonly { label: string; value: string }[] {
   return [
-    meter.context === null ? undefined : { label: 'Context window', value: `${meter.context}% full` },
-    meter.fiveHour === null ? undefined : { label: '5-hour limit', value: `${meter.fiveHour}% used` },
-    meter.week === null ? undefined : { label: 'Weekly limit', value: `${meter.week}% used` },
+    meter.context === null ? undefined : { label: 'Context window', value: `${meter.context}%` },
+    meter.fiveHour === null ? undefined : { label: '5-hour limit', value: `${meter.fiveHour}%` },
+    meter.week === null ? undefined : { label: 'Weekly limit', value: `${meter.week}%` },
   ].filter(line => line !== undefined)
 }
 

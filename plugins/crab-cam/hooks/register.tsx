@@ -310,7 +310,7 @@ function readings(table: Elements['terminal'] | Elements['desktop'], gauged: Met
           <Text dimColor>{line.label}</Text>
         ))}
       </Box>
-      <Box flexDirection="column" flexShrink={0}>
+      <Box flexDirection="column" alignItems="flex-end" flexShrink={0}>
         {lines.map(line => (
           <Text bold>{line.value}</Text>
         ))}
@@ -378,7 +378,7 @@ function desktopTree(table: Elements['desktop'], shown: Scene, gauged: Meter | u
           height={SCENE_HEIGHT}
         />
       </Box>
-      <Box flexDirection="column" flexGrow={1}>
+      <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
         <Text bold>{label}</Text>
         {detail !== '' && (
           <Text dimColor wrap="truncate-end">

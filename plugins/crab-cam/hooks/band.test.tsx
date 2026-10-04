@@ -36,7 +36,7 @@ test('details spell the readings out beside the meter on both surfaces', async (
     const ui = await $.ui.mount({ ...BAND, surface })
 
     expect(await ui.find({ type: 'Text', text: /Context window/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /57% used/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /57%/ })).toBeDefined()
     await ui.unmount()
   }
 })

@@ -33,10 +33,10 @@ test('the meter in words names only what is measured', () => {
 
 test('the readings in figures leave out what is not measured', () => {
   expect(meterLines({ context: null, fiveHour: null, week: null })).toEqual([])
-  expect(meterLines({ context: 62, fiveHour: null, week: null })).toEqual([{ label: 'Context window', value: '62% full' }])
+  expect(meterLines({ context: 62, fiveHour: null, week: null })).toEqual([{ label: 'Context window', value: '62%' }])
   expect(meterLines({ context: 62, fiveHour: 57, week: 41 })).toEqual([
-    { label: 'Context window', value: '62% full' },
-    { label: '5-hour limit', value: '57% used' },
-    { label: 'Weekly limit', value: '41% used' },
+    { label: 'Context window', value: '62%' },
+    { label: '5-hour limit', value: '57%' },
+    { label: 'Weekly limit', value: '41%' },
   ])
 })
