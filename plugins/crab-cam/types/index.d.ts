@@ -3,6 +3,7 @@ export type Activity =
   | 'thinking'
   | 'reading'
   | 'coding'
+  | 'writing'
   | 'terminal'
   | 'searching'
   | 'web'

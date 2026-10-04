@@ -203,6 +203,34 @@ export const SCENES: Record<Activity, () => Drawing> = {
     }
   },
 
+  writing: () => {
+    const lines: readonly (readonly [number, number])[] = [
+      [24, 28],
+      [30, 21],
+      [36, 28],
+      [42, 16],
+    ]
+    const at = (i: number) => 0.04 + i * 0.22
+    const path = lines.flatMap(([y, width]) => [`80 ${y + 1.5}`, `${80 + width} ${y + 1.5}`])
+    const times = lines.flatMap((_, i) => [at(i).toFixed(2), (at(i) + 0.2).toFixed(2)])
+
+    return {
+      pose: TYPING,
+      prop:
+        `<path d="M74,8 h30 l10,10 v38 h-40 z" fill="${PAPER}" stroke="${LINE}" stroke-width="1.5" stroke-linejoin="round"/>` +
+        `<path d="M104,8 v10 h10" ${stroke(LINE, 1.5)}/>` +
+        lines
+          .map(([y, width], i) =>
+            bar(80, y, width, GREY, loop('width', `0;0;${width};${width}`, 4, `keyTimes="0;${at(i).toFixed(2)};${(at(i) + 0.2).toFixed(2)};1"`)),
+          )
+          .join('') +
+        `<g>${slide([path[0], ...path, path.at(-1)].join(';'), 4, `keyTimes="0;${times.join(';')};1"`)}` +
+        `<path d="M0,0 l1.2,-4.2 l9,-9 l3,3 l-9,9 z" fill="${YELLOW}" stroke="${SLATE}" stroke-width="1" stroke-linejoin="round"/>` +
+        `<path d="M0,0 l0.6,-2.1 l1.5,1.5 z" fill="${EYE}"/>` +
+        `</g>`,
+    }
+  },
+
   terminal: () => ({
     pose: TYPING,
     prop:
@@ -482,6 +510,11 @@ const PROPS: Record<Activity, readonly Frame[]> = {
   coding: [
     ['┌─────┐', '│</>▌ │', '▀▀▀▀▀▀▀'],
     ['┌─────┐', '│</>  │', '▀▀▀▀▀▀▀'],
+  ],
+  writing: [
+    ['┌────╮', '│╱   │', '└────┘'],
+    ['┌────╮', '│≡≡╱ │', '└────┘'],
+    ['┌────╮', '│≡≡≡≡│', '└────┘'],
   ],
   terminal: [
     ['┌─────┐', '│$ ▌  │', '▀▀▀▀▀▀▀'],

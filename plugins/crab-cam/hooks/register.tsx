@@ -2,7 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, Register, Timer } from 'claude-code'
 
 import type { Activity, Meter, Scene } from '../types'
-import { activityOf, isShell } from './activity'
+import type { Lingering } from './activity'
+import { activityOf, activityOfStreaming, isShell, sceneOfLingering } from './activity'
 import { meterAlt, meterLines, meterRow, meterSvg, meterWidth } from './meter'
 import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg, sceneRows } from './scenes'
 
@@ -25,6 +26,7 @@ const DEMO: readonly Activity[] = [
   'thinking',
   'reading',
   'coding',
+  'writing',
   'terminal',
   'testing',
   'git',
@@ -58,6 +60,7 @@ const LABELS: Record<Activity, string> = {
   thinking: 'Claude is thinking',
   reading: 'Claude is reading',
   coding: 'Claude is writing code',
+  writing: 'Claude is writing text',
   terminal: 'Claude is running a command',
   searching: 'Claude is searching',
   web: 'Claude is browsing the web',
@@ -101,14 +104,20 @@ function detailOf(tool: string, args: Readonly<Record<string, unknown>>): string
 
 type Painted = { activity: Activity; detail: string; hold: number }
 
+type Call = { tool: string; activity: Activity; detail: string }
+
 let isWorking = false
-let running = 0
+// The main loop's calls still running, by tool_use_id, in the order begun.
+const calls = new Map<string, Call>()
 let pending: Promise<unknown> = Promise.resolve()
 let rest: Timer | undefined
 let ticker: Timer | undefined
 let demo: Timer | undefined
 let muse: Timer | undefined
-let isAsking = false
+// The tool a permission dialog is open for, while one is.
+let asking: string | undefined
+// What the last stop of the main loop left running in the background.
+let lingering: readonly Lingering[] = []
 // The scene on screen, the hold it is under, and what came in meanwhile.
 let current: Painted | undefined
 let busy: Timer | undefined
@@ -166,6 +175,15 @@ function paint($: EngineInterface, activity: Activity, detail: string, hold = 0)
   }
 }
 
+// Drops the hold on the scene on screen and what is queued behind it, so the
+// next scene shows at once and nothing from before it shows after.
+function flush(): void {
+  busy?.cancel()
+  busy = undefined
+  held = []
+  trailing = undefined
+}
+
 // What the session is doing; held back while the demo has the crab.
 function show($: EngineInterface, activity: Activity, detail = '', hold = 0): void {
   if (demo === undefined) {
@@ -184,24 +202,61 @@ function museLater($: EngineInterface): void {
   muse = $.clock.after(THINK_AFTER_MS, () => {
     muse = undefined
 
-    if (isWorking && running === 0) {
+    if (isWorking && calls.size === 0) {
       show($, 'thinking')
     }
   })
 }
 
+function stopTicking(): void {
+  ticker?.cancel()
+  ticker = undefined
+}
+
+// The scene between turns: the background work still going, or rest.
+function settle($: EngineInterface): void {
+  const scene = sceneOfLingering(lingering)
+
+  if (scene === undefined) {
+    stopTicking()
+    show($, 'idle')
+  } else {
+    show($, scene.activity, scene.detail.length > DETAIL_LENGTH ? `${scene.detail.slice(0, DETAIL_LENGTH - 1)}…` : scene.detail)
+  }
+}
+
+// The scene of a turn under way: the call still running that began last, else
+// thinking.
+function resume($: EngineInterface): void {
+  const last = [...calls.values()].pop()
+
+  if (last === undefined) {
+    show($, 'thinking')
+  } else {
+    show($, last.activity, last.detail)
+  }
+}
+
+// Back to what the session is doing, after something else had the crab.
+function restore($: EngineInterface): void {
+  if (isWorking) {
+    resume($)
+  } else {
+    settle($)
+  }
+}
+
 function stopTimers(): void {
   stopMusing()
   rest?.cancel()
-  ticker?.cancel()
   rest = undefined
-  ticker = undefined
 }
 
 // Walks every scene in turn, so each animation can be seen without a task
 // that happens to raise it; the session's own scenes wait until it is through.
 function playDemo($: EngineInterface): void {
   demo?.cancel()
+  flush()
   let index = 0
   paint($, DEMO[0] ?? 'idle', DEMO_DETAIL)
 
@@ -212,7 +267,7 @@ function playDemo($: EngineInterface): void {
     if (activity === undefined) {
       demo?.cancel()
       demo = undefined
-      paint($, isWorking ? 'thinking' : 'idle', '')
+      restore($)
 
       return
     }
@@ -345,7 +400,15 @@ export const register: Register = on => {
         'Hide or show the crab; "demo" plays every scene, "meter" shows or hides the shell, "details" its readings in figures',
       argumentHint: '[demo|meter|details]',
     })
-    show($, 'idle')
+
+    // A reload in the middle of a turn finds the turn's scene in place and
+    // leaves it; only a scene that was on its way to rest is put to rest.
+    const stored = await read($, scene)
+
+    if (stored.activity === 'done' || stored.activity === 'error') {
+      show($, 'idle')
+    }
+
     // The figures the session already has; later ones come with session.measure.
     void $.session
       .usage()
@@ -403,13 +466,14 @@ export const register: Register = on => {
   on('turn.start', async ($, e, next) => {
     stopTimers()
     isWorking = true
-    running = 0
-    isAsking = false
+    calls.clear()
+    asking = undefined
+    flush()
     show($, 'thinking')
 
     // Only the terminal's glyph scenes are animated by a tick; the desktop's
     // drawing animates itself.
-    if ((await $.session.surfaces()).includes('terminal')) {
+    if (ticker === undefined && (await $.session.surfaces()).includes('terminal')) {
       ticker = $.clock.every(TICK_MS, () => {
         void update($, frame, tick => (tick + 1) % 60).catch(() => undefined)
       })
@@ -423,11 +487,17 @@ export const register: Register = on => {
       return yield* next(e)
     }
 
+    // A reload in the middle of a turn has no turn.start to go by.
+    isWorking = true
+    // The shell calls of this response whose arguments are still arriving, by
+    // block: what has arrived of each, until it settles the scene.
+    const arriving = new Map<number, string>()
+
     for await (const chunk of next(e)) {
       if (chunk.kind === 'thinking') {
         // Right after a tool the thinking is the short pause before the next
         // call: the tool's scene stays until the pause has lasted.
-        if (muse === undefined && running === 0) {
+        if (muse === undefined && calls.size === 0) {
           show($, 'thinking')
         }
       } else if (chunk.kind === 'text' && chunk.text.trim() !== '') {
@@ -437,9 +507,25 @@ export const register: Register = on => {
         stopMusing()
 
         // What a command is about shows only in its arguments: the scene
-        // waits for the call, rather than passing through a generic one.
-        if (!isShell(chunk.name)) {
+        // waits for enough of them, rather than passing through a generic one.
+        if (isShell(chunk.name)) {
+          arriving.set(chunk.index, '')
+        } else {
           show($, activityOf(chunk.name))
+        }
+      } else if (chunk.kind === 'input') {
+        const before = arriving.get(chunk.index)
+
+        if (before !== undefined) {
+          const json = before + chunk.json
+          const activity = activityOfStreaming(json)
+
+          if (activity === undefined) {
+            arriving.set(chunk.index, json)
+          } else {
+            arriving.delete(chunk.index)
+            show($, activity)
+          }
         }
       }
 
@@ -456,7 +542,7 @@ export const register: Register = on => {
     const activity = activityOf(e.tool, args)
     const detail = detailOf(e.tool, args)
     let hasFailed = false
-    running += 1
+    calls.set(e.tool_use_id, { tool: e.tool, activity, detail })
     stopMusing()
     show($, activity, detail, HOLD_MS)
 
@@ -466,27 +552,52 @@ export const register: Register = on => {
 
       return ran
     } finally {
-      running = Math.max(0, running - 1)
+      calls.delete(e.tool_use_id)
+      const wasAsked = asking === e.tool
 
-      if (hasFailed) {
-        show($, 'error', detail, ERROR_HOLD_MS)
-      } else if (isAsking) {
-        show($, activity, detail)
+      if (wasAsked) {
+        asking = undefined
       }
 
-      isAsking = false
+      // A call that returns once its turn is over, as on an interrupt, says
+      // nothing of the session any more.
+      if (isWorking) {
+        if (hasFailed) {
+          show($, 'error', detail, ERROR_HOLD_MS)
+        }
 
-      if (running === 0 && isWorking) {
-        museLater($)
+        // A dialog still open for another call keeps the crab.
+        if (asking === undefined) {
+          if (calls.size > 0) {
+            resume($)
+          } else {
+            if (wasAsked && !hasFailed) {
+              show($, activity, detail)
+            }
+
+            museLater($)
+          }
+        }
       }
     }
   })
 
   // The dialog is on screen from here until the person answers; nothing says
-  // when they did, so the scene stays until the call itself returns.
+  // when they did, so the scene stays until the call itself returns. A
+  // subagent's dialog is not the main loop's, and a question or a plan put to
+  // the person is asking, not permission.
   on('classic.PermissionRequest', ($, e, next) => {
-    isAsking = true
-    show($, 'permission', e.tool_name)
+    if (e.agent_id !== undefined) {
+      return next(e)
+    }
+
+    asking = e.tool_name
+
+    if (activityOf(e.tool_name) === 'asking' || e.tool_name === 'ExitPlanMode') {
+      show($, 'asking')
+    } else {
+      show($, 'permission', e.tool_name)
+    }
 
     return next(e)
   })
@@ -501,7 +612,7 @@ export const register: Register = on => {
     try {
       return await next(e)
     } finally {
-      show($, isWorking ? 'thinking' : 'idle')
+      restore($)
     }
   })
 
@@ -512,15 +623,52 @@ export const register: Register = on => {
 
     stopTimers()
     isWorking = false
-    running = 0
-    show($, e.isAborted ? 'idle' : 'done')
+    calls.clear()
+    asking = undefined
+    // Nothing of the turn shows once it is over.
+    flush()
 
-    if (!e.isAborted) {
+    if (e.isAborted) {
+      settle($)
+    } else {
+      // A refusal or an API error ended the turn too, but nothing is done.
+      show($, e.reason === 'answer' ? 'done' : 'error')
       rest = $.clock.after(REST_AFTER_MS, () => {
+        rest = undefined
+
         if (!isWorking) {
-          show($, 'idle')
+          settle($)
         }
       })
+    }
+
+    return next(e)
+  })
+
+  // `/clear`, `/resume` and the end of the session: what the crab knew of the
+  // conversation is gone with it.
+  on('session.end', ($, e, next) => {
+    stopTimers()
+    stopTicking()
+    demo?.cancel()
+    demo = undefined
+    flush()
+    isWorking = false
+    calls.clear()
+    asking = undefined
+    lingering = []
+    paint($, 'idle', '')
+
+    return next(e)
+  })
+
+  // The turn may be over while a command or a helper it started runs on: the
+  // crab then keeps at it rather than resting, until the next turn begins.
+  on('classic.Stop', ($, e, next) => {
+    lingering = e.background_tasks ?? []
+
+    if (!isWorking && rest === undefined) {
+      settle($)
     }
 
     return next(e)

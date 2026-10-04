@@ -5,6 +5,9 @@ const BY_TOOL: Record<string, Activity> = {
   NotebookRead: 'reading',
   ReadMcpResourceTool: 'reading',
   ListMcpResourcesTool: 'reading',
+  ReadMcpResourceDirTool: 'reading',
+  ReadNotifications: 'reading',
+  FetchInboxMessage: 'reading',
   Skill: 'skill',
   Edit: 'coding',
   MultiEdit: 'coding',
@@ -12,15 +15,21 @@ const BY_TOOL: Record<string, Activity> = {
   NotebookEdit: 'coding',
   Bash: 'terminal',
   KillShell: 'terminal',
+  TaskStop: 'terminal',
   BashOutput: 'waiting',
   TaskOutput: 'waiting',
   Monitor: 'waiting',
   ScheduleWakeup: 'waiting',
   CronCreate: 'waiting',
+  CronList: 'waiting',
+  CronDelete: 'waiting',
   Grep: 'searching',
   Glob: 'searching',
   LS: 'searching',
   ToolSearch: 'searching',
+  ListSkills: 'searching',
+  ListPlugins: 'searching',
+  ListAgents: 'searching',
   WebFetch: 'web',
   WebSearch: 'web',
   Agent: 'delegating',
@@ -31,16 +40,27 @@ const BY_TOOL: Record<string, Activity> = {
   TodoWrite: 'planning',
   TaskCreate: 'planning',
   TaskUpdate: 'planning',
+  TaskList: 'planning',
+  TaskGet: 'planning',
   EnterPlanMode: 'planning',
   ExitPlanMode: 'planning',
   Artifact: 'sharing',
   SendUserFile: 'sharing',
   PushNotification: 'sharing',
+  ReportFindings: 'sharing',
+  SuggestSkills: 'sharing',
+  SuggestPluginInstall: 'sharing',
+  EnterWorktree: 'git',
+  ExitWorktree: 'git',
 }
 
 const TESTS = /\b(pytest|vitest|jest|mocha|rspec|phpunit|tox|unittest|(go|cargo|bun|deno|dotnet) test|(npm|pnpm|yarn)( run)? test)\b/
 const INSTALL =
   /\b((npm|pnpm|yarn|bun) (install|add|i|ci)|pip3? install|uv (add|sync|pip)|poetry (add|install)|brew install|cargo (add|install)|apt(-get)? install)\b/
+// Files that hold prose rather than code: by their extension, or by the names
+// that go without one.
+const PROSE =
+  /\.(md|mdx|markdown|txt|rst|adoc|asciidoc|org|tex|rtf)$|(^|\/)(README|LICEN[CS]E|CHANGELOG|CONTRIBUTING|AUTHORS|NOTICE|TODO)$/i
 const MEMORY = /\/memory\/|(^|\/)(CLAUDE|MEMORY)\.md$/
 
 // What may stand before the command that does the work: a change of
@@ -121,10 +141,46 @@ function activityOfCommand(command: string): Activity {
   const line = rest.split('\n')[0] ?? rest
 
   if (name === 'tee' || (name === 'sed' && /\s-i\b/.test(line)) || (WRITERS.has(name) && TO_FILE.test(line))) {
-    return 'coding'
+    return line.split(/\s+/).some(word => PROSE.test(word.replace(/^['"]|['"]$/g, ''))) ? 'writing' : 'coding'
   }
 
   return BY_COMMAND[name] ?? 'terminal'
+}
+
+// The command in a shell call's arguments while their JSON is still arriving:
+// what there is of it so far, or nothing before it has begun.
+function commandSoFar(json: string): string | undefined {
+  const written = /"command"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(json)?.[1]
+
+  return written?.replace(/\\(.)/g, (_, escaped: string) => (escaped === 'n' ? '\n' : escaped === 't' ? '\t' : escaped))
+}
+
+// Which scene a shell call is while its arguments are still arriving, once
+// what has arrived settles it: a long command is on its way for seconds, and
+// the crab should not sit on the scene before it. Nothing while the command's
+// first word is not whole yet, or says nothing by itself.
+export function activityOfStreaming(json: string): Activity | undefined {
+  const command = commandSoFar(json)
+
+  if (command === undefined) {
+    return undefined
+  }
+
+  const { name, rest } = programOf(command)
+
+  if (!/^[\w./+-]+\s/.test(rest) || name === 'cd' || name === 'pushd') {
+    return undefined
+  }
+
+  const activity = activityOfCommand(command)
+
+  // The file a command writes to tells code from prose, and is in once its line is.
+  if ((activity === 'coding' || activity === 'writing') && !command.includes('\n')) {
+    return undefined
+  }
+
+  // A plain command only once enough of it is in to tell it is no more.
+  return activity !== 'terminal' || command.length >= 40 || command.includes('\n') ? activity : undefined
 }
 
 // Whether the scene of a call to this tool depends on its arguments.
@@ -147,6 +203,10 @@ export function activityOf(tool: string, args?: Readonly<Record<string, unknown>
     return 'memory'
   }
 
+  if (known === 'coding' && typeof path === 'string' && PROSE.test(path)) {
+    return 'writing'
+  }
+
   if (known !== undefined) {
     return known
   }
@@ -159,9 +219,51 @@ export function activityOf(tool: string, args?: Readonly<Record<string, unknown>
     return 'terminal'
   }
 
-  if (/search|find|query/i.test(tool)) {
+  // A tool the table does not know, an MCP server's mostly: by the verb its
+  // own name opens with (`mcp__server__search_issues` is `search_issues`).
+  const name = tool.split('__').pop() ?? tool
+
+  if (/search|find|query/i.test(name)) {
     return 'searching'
   }
 
+  if (/^(get|read|list|fetch|view)/i.test(name)) {
+    return 'reading'
+  }
+
+  if (/^(show|display|render|open)/i.test(name)) {
+    return 'sharing'
+  }
+
   return 'tool'
+}
+
+// A task still running in the background once the turn is over.
+export type Lingering = { type: string; description: string; command?: string }
+
+// A subscription that stays open for as long as the session does, such as the
+// live updates of a published artifact. Nothing is in progress, so it must not
+// keep the crab from resting.
+function isStanding(task: Lingering): boolean {
+  return /^live updates for /i.test(task.description)
+}
+
+// What the crab shows once a turn is over while work goes on in the
+// background: helpers at work when every task is a subagent or a workflow,
+// waiting otherwise; nothing when no task is left, and the crab may rest.
+export function sceneOfLingering(all: readonly Lingering[]): { activity: Activity; detail: string } | undefined {
+  const tasks = all.filter(task => !isStanding(task))
+  const [first] = tasks
+
+  if (first === undefined) {
+    return undefined
+  }
+
+  const isDelegated = tasks.every(task => task.type === 'subagent' || task.type === 'workflow')
+  const about = (first.command ?? first.description).split('\n')[0] ?? ''
+
+  return {
+    activity: isDelegated ? 'delegating' : 'waiting',
+    detail: tasks.length === 1 ? about : `${tasks.length} tasks in the background`,
+  }
 }
