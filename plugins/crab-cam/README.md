@@ -25,6 +25,7 @@ To get new versions, run `claude plugin update crab-cam@agent-kit`, or enable au
 | `/crab-cam demo` | Play every scene, three seconds each |
 | `/crab-cam meter` | Hide or show the shell meter |
 | `/crab-cam details` | Show or hide the meter's readings in figures beside the shell |
+| `/crab-cam commands` | Show commands as typed, or go back to the description of what they do |
 
 ## Scenes
 

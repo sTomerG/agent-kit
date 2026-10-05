@@ -202,3 +202,27 @@ test('a call still being written already says what it is about', async ($, on) =
   expect(await says($, /Show changed files/)).toBe(true)
 
 })
+
+test('commands shows a command as typed, and once more describes it again', async ($, on) => {
+  const clock = session(on)
+  on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
+  const toggle = () =>
+    $.command.run({
+      command: 'crab-cam',
+      args: 'commands',
+      origin: { kind: 'composer' },
+      presentation: { isFullscreen: false, columns: 120 },
+    })
+
+  await toggle()
+  await $.turn.start({ text: 'check it', turnId: 't1' })
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'a', command: 'git status --short', description: 'Show working tree status' })
+  await clock.advance(0)
+  expect(await says($, /git status --short/)).toBe(true)
+
+  await toggle()
+  await clock.advance(1500)
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'b', command: 'git log -3', description: 'Show the last three commits' })
+  await clock.advance(1500)
+  expect(await says($, /Show the last three commits/)).toBe(true)
+})

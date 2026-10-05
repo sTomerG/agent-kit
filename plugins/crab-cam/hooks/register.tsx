@@ -60,6 +60,8 @@ const frame = atom({ plugin: 'crab-cam', key: 'frame' } as const, 0)
 const meter = atom({ plugin: 'crab-cam', key: 'meter' } as const, { context: null, fiveHour: null, week: null })
 const isMetered = atom({ plugin: 'crab-cam', key: 'isMetered' } as const, true)
 const isDetailed = atom({ plugin: 'crab-cam', key: 'isDetailed' } as const, false)
+// Whether a command shows as typed rather than by its description.
+const isRaw = atom({ plugin: 'crab-cam', key: 'isRaw' } as const, false)
 
 const LABELS: Record<Activity, string> = {
   idle: 'Claude is resting',
@@ -92,11 +94,13 @@ const LABELS: Record<Activity, string> = {
 // A command comes with a description of what it does in plain words, the one
 // the app shows too: that goes before the command itself.
 const DETAIL_KEYS = ['file_path', 'notebook_path', 'description', 'command', 'pattern', 'query', 'url', 'skill'] as const
+// The same with the command itself first, for who wants to see what runs.
+const RAW_KEYS = ['file_path', 'notebook_path', 'command', 'pattern', 'query', 'url', 'description', 'skill'] as const
 
 // What the call is about, in a few words: the file's name, what the command
 // does, the pattern.
-function detailOf(tool: string, args: Readonly<Record<string, unknown>>): string {
-  for (const key of DETAIL_KEYS) {
+function detailOf(tool: string, args: Readonly<Record<string, unknown>>, raw = false): string {
+  for (const key of raw ? RAW_KEYS : DETAIL_KEYS) {
     const value = args[key]
 
     if (typeof value !== 'string' || value === '') {
@@ -115,11 +119,12 @@ function detailOf(tool: string, args: Readonly<Record<string, unknown>>): string
 // The arguments that say what a call is about before it is made, once all of
 // one has arrived: the file written to, the skill, what a command does.
 const EARLY_KEYS = ['file_path', 'skill', 'description'] as const
+const RAW_EARLY_KEYS = ['file_path', 'skill', 'command'] as const
 
 // What a call is about while its arguments are still arriving; nothing until
 // one of the telling ones is whole.
-function detailOfStreaming(tool: string, json: string): string {
-  for (const key of EARLY_KEYS) {
+function detailOfStreaming(tool: string, json: string, raw: boolean): string {
+  for (const key of raw ? RAW_EARLY_KEYS : EARLY_KEYS) {
     const value = whole(json, key)
 
     if (value !== undefined) {
@@ -444,8 +449,8 @@ export const register: Register = on => {
     await $.command.register({
       name: COMMAND,
       description:
-        'Hide or show the crab; "demo" plays every scene, "meter" shows or hides the shell, "details" its readings in figures',
-      argumentHint: '[demo|meter|details]',
+        'Hide or show the crab; "demo" plays every scene, "meter" shows or hides the shell, "details" its readings in figures, "commands" shows commands as typed',
+      argumentHint: '[demo|meter|details|commands]',
     })
 
     // A reload in the middle of a turn finds the turn's scene in place and
@@ -499,6 +504,16 @@ export const register: Register = on => {
       }
     }
 
+    if (argument === 'commands') {
+      const raw = await update($, isRaw, value => !value)
+
+      return {
+        text: raw
+          ? 'Commands now show as typed. /crab-cam commands goes back to describing what they do.'
+          : 'Commands are described by what they do again. /crab-cam commands shows them as typed.',
+      }
+    }
+
     const hidden = await update($, isHidden, value => !value)
 
     return { text: hidden ? 'The crab is hidden. Type /crab-cam to bring it back.' : 'The crab is back.' }
@@ -541,6 +556,7 @@ export const register: Register = on => {
     // what the call is about, by block: the tool and what has arrived, until
     // it settles the scene.
     const arriving = new Map<number, { tool: string; json: string; activity?: Activity }>()
+    const raw = await read($, isRaw)
 
     for await (const chunk of next(e)) {
       if (chunk.kind === 'thinking') {
@@ -569,7 +585,7 @@ export const register: Register = on => {
         if (before !== undefined) {
           const json = before.json + chunk.json
           const activity = before.activity ?? activityOfStreaming(before.tool, json, isDesigning)
-          const detail = activity === undefined ? '' : detailOfStreaming(before.tool, json)
+          const detail = activity === undefined ? '' : detailOfStreaming(before.tool, json, raw)
 
           // The scene shows as soon as it is settled, and what it is about
           // as soon as that is in: a command's description comes after the
@@ -598,7 +614,7 @@ export const register: Register = on => {
     const args = e as unknown as Readonly<Record<string, unknown>>
     isDesigning ||= opensDesign(e.tool, args)
     const activity = activityOf(e.tool, args, isDesigning)
-    const detail = detailOf(e.tool, args)
+    const detail = detailOf(e.tool, args, await read($, isRaw))
     let hasFailed = false
     calls.set(e.tool_use_id, { tool: e.tool, activity, detail })
     stopMusing()
