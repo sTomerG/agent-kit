@@ -63,6 +63,9 @@ const PROSE =
   /\.(md|mdx|markdown|txt|rst|adoc|asciidoc|org|tex|rtf)$|(^|\/)(README|LICEN[CS]E|CHANGELOG|CONTRIBUTING|AUTHORS|NOTICE|TODO)$/i
 // Files that hold how something looks: stylesheets and drawings.
 const LOOKS = /\.(css|scss|sass|less|svg)$/i
+// Files that hold a page: code in a web project, but a design once the turn
+// has taken up design work, as when the page of an artifact is written.
+const PAGE = /\.(html?|xhtml)$/i
 const MEMORY = /\/memory\/|(^|\/)(CLAUDE|MEMORY)\.md$/
 
 // What may stand before the command that does the work: a change of
@@ -125,7 +128,7 @@ function programOf(command: string): { name: string; rest: string } {
 
 // Which scene a shell command is: a test run or an install wherever it stands
 // in the line, else by the first command, so `cat x | grep y` is reading.
-function activityOfCommand(command: string): Activity {
+function activityOfCommand(command: string, isDesigning: boolean): Activity {
   if (TESTS.test(command)) {
     return 'testing'
   }
@@ -145,7 +148,9 @@ function activityOfCommand(command: string): Activity {
   if (name === 'tee' || (name === 'sed' && /\s-i\b/.test(line)) || (WRITERS.has(name) && TO_FILE.test(line))) {
     const words = line.split(/\s+/).map(word => word.replace(/^['"]|['"]$/g, ''))
 
-    return words.some(word => PROSE.test(word)) ? 'writing' : words.some(word => LOOKS.test(word)) ? 'designing' : 'coding'
+    const looks = (word: string) => LOOKS.test(word) || (isDesigning && PAGE.test(word))
+
+    return words.some(word => PROSE.test(word)) ? 'writing' : words.some(looks) ? 'designing' : 'coding'
   }
 
   return BY_COMMAND[name] ?? 'terminal'
@@ -178,13 +183,13 @@ function whole(json: string, key: string): string | undefined {
 // arrived settles it: a long command or a whole file is on its way for
 // seconds, and the crab should not sit on the scene before it. Nothing while
 // the command's first word is not whole yet, or says nothing by itself.
-export function activityOfStreaming(tool: string, json: string): Activity | undefined {
+export function activityOfStreaming(tool: string, json: string, isDesigning = false): Activity | undefined {
   const key = TELLING[tool]
 
   if (key !== undefined) {
     const value = whole(json, key)
 
-    return value === undefined ? undefined : activityOf(tool, { [key]: value })
+    return value === undefined ? undefined : activityOf(tool, { [key]: value }, isDesigning)
   }
 
   const command = commandSoFar(json)
@@ -199,7 +204,7 @@ export function activityOfStreaming(tool: string, json: string): Activity | unde
     return undefined
   }
 
-  const activity = activityOfCommand(command)
+  const activity = activityOfCommand(command, isDesigning)
 
   // The file a command writes to tells code from prose, and is in once its line is.
   if ((activity === 'coding' || activity === 'writing' || activity === 'designing') && !command.includes('\n')) {
@@ -221,13 +226,15 @@ export function isToldByArgs(tool: string): boolean {
 
 // Which scene a call is: by the tool, and for a command or a file by what it
 // is about (`args` absent while the call's arguments are still streaming).
-export function activityOf(tool: string, args?: Readonly<Record<string, unknown>>): Activity {
+// `isDesigning` says the turn has taken up design work, which makes a page
+// written from then on part of the design.
+export function activityOf(tool: string, args?: Readonly<Record<string, unknown>>, isDesigning = false): Activity {
   const known = BY_TOOL[tool]
   const command = args?.command
   const path = args?.file_path
 
   if (isShell(tool) && typeof command === 'string') {
-    return activityOfCommand(command)
+    return activityOfCommand(command, isDesigning)
   }
 
   if (known === 'coding' && typeof path === 'string' && MEMORY.test(path)) {
@@ -238,7 +245,7 @@ export function activityOf(tool: string, args?: Readonly<Record<string, unknown>
     return 'writing'
   }
 
-  if (known === 'coding' && typeof path === 'string' && LOOKS.test(path)) {
+  if (known === 'coding' && typeof path === 'string' && (LOOKS.test(path) || (isDesigning && PAGE.test(path)))) {
     return 'designing'
   }
 
@@ -282,6 +289,13 @@ export function activityOf(tool: string, args?: Readonly<Record<string, unknown>
   }
 
   return 'tool'
+}
+
+// Whether a call takes up design work: a design tool, a design skill or the
+// start of an artifact. An edit to a stylesheet alone does not, as any web
+// project has those.
+export function opensDesign(tool: string, args?: Readonly<Record<string, unknown>>): boolean {
+  return !isShell(tool) && BY_TOOL[tool] !== 'coding' && activityOf(tool, args) === 'designing'
 }
 
 // A task still running in the background once the turn is over.

@@ -119,3 +119,23 @@ test('a long command shows its scene while it is still being written', async ($,
   finish()
   await step
 })
+
+test('the page of an artifact is designed, in the turn a design skill was loaded in', async ($, on) => {
+  const clock = session(on)
+  on('tool.call', { tool: 'Skill' }, () => ({ result: 'ok' }))
+  on('tool.call', { tool: 'Write' }, () => ({ result: 'ok' }))
+
+  await $.turn.start({ text: 'draw the tide table', turnId: 't1' })
+  await $.tool.call({ tool: 'Skill', tool_use_id: 's', skill: 'artifact-design' })
+  await clock.advance(1500)
+  await $.tool.call({ tool: 'Write', tool_use_id: 'w', file_path: '/tmp/scratchpad/tide-table.html', content: '<title>' })
+  await clock.advance(1500)
+  expect(await says($, /is designing/)).toBe(true)
+  expect(await says($, /tide-table\.html/)).toBe(true)
+  await $.turn.complete({ answer: 'Drawn.', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
+
+  await $.turn.start({ text: 'now fix the site', turnId: 't2' })
+  await $.tool.call({ tool: 'Write', tool_use_id: 'w2', file_path: '/repo/site/index.html', content: '<title>' })
+  await clock.advance(1500)
+  expect(await says($, /writing code/)).toBe(true)
+})

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Activity } from '../types'
-import { activityOf, activityOfStreaming, sceneOfLingering } from './activity'
+import { activityOf, activityOfStreaming, opensDesign, sceneOfLingering } from './activity'
 
 const COMMANDS: readonly (readonly [string, Activity])[] = [
   ['cat README.md', 'reading'],
@@ -139,4 +139,24 @@ test('a file on its way shows the scene of the file as soon as its path is in', 
   expect(activityOfStreaming('Write', '{"file_path": "notes.md"')).toBe('writing')
   expect(activityOfStreaming('Skill', '{"skill": "artifact-design"')).toBe('designing')
   expect(activityOfStreaming('Artifact', '{"action": "quickstart"')).toBe('designing')
+})
+
+test('a page is designed once the turn has taken up design work', () => {
+  expect(activityOf('Write', { file_path: 'scratchpad/tide-table.html' }, true)).toBe('designing')
+  expect(activityOf('Edit', { file_path: 'site/index.htm' }, true)).toBe('designing')
+  expect(activityOf('Edit', { file_path: 'src/App.tsx' }, true)).toBe('coding')
+  expect(activityOf('Write', { file_path: 'notes.md' }, true)).toBe('writing')
+  expect(activityOf('Bash', { command: "cat > page.html <<'EOF'" }, true)).toBe('designing')
+  expect(activityOf('Bash', { command: "cat > page.html <<'EOF'" })).toBe('coding')
+  expect(activityOfStreaming('Write', '{"file_path": "scratchpad/tide-table.html", "content": "<ti', true)).toBe('designing')
+})
+
+test('a design skill, a design tool or the start of an artifact takes up design work', () => {
+  expect(opensDesign('Skill', { skill: 'artifact-design' })).toBe(true)
+  expect(opensDesign('Artifact', { action: 'quickstart', intent: 'other' })).toBe(true)
+  expect(opensDesign('mcp__figma__get_file')).toBe(true)
+  expect(opensDesign('Skill', { skill: 'code-review' })).toBe(false)
+  expect(opensDesign('Edit', { file_path: 'src/app.css' })).toBe(false)
+  expect(opensDesign('Bash', { command: "sed -i '' 's/red/blue/' theme.css" })).toBe(false)
+  expect(opensDesign('Artifact', { file_path: 'scratchpad/tide-table.html' })).toBe(false)
 })

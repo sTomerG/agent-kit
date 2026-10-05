@@ -3,7 +3,7 @@ import type { Elements, EngineInterface, Register, Timer } from 'claude-code'
 
 import type { Activity, Meter, Scene } from '../types'
 import type { Lingering } from './activity'
-import { activityOf, activityOfStreaming, isToldByArgs, sceneOfLingering } from './activity'
+import { activityOf, activityOfStreaming, isToldByArgs, opensDesign, sceneOfLingering } from './activity'
 import { meterAlt, meterLines, meterRow, meterSvg, meterWidth } from './meter'
 import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg, sceneRows } from './scenes'
 
@@ -109,6 +109,9 @@ type Painted = { activity: Activity; detail: string; hold: number }
 type Call = { tool: string; activity: Activity; detail: string }
 
 let isWorking = false
+// Whether this turn has taken up design work, by a design skill or tool or
+// the start of an artifact: a page written after that is designed, not coded.
+let isDesigning = false
 // The main loop's calls still running, by tool_use_id, in the order begun.
 const calls = new Map<string, Call>()
 let pending: Promise<unknown> = Promise.resolve()
@@ -468,6 +471,7 @@ export const register: Register = on => {
   on('turn.start', async ($, e, next) => {
     stopTimers()
     isWorking = true
+    isDesigning = false
     calls.clear()
     asking = undefined
     flush()
@@ -522,7 +526,7 @@ export const register: Register = on => {
 
         if (before !== undefined) {
           const json = before.json + chunk.json
-          const activity = activityOfStreaming(before.tool, json)
+          const activity = activityOfStreaming(before.tool, json, isDesigning)
 
           if (activity === undefined) {
             arriving.set(chunk.index, { tool: before.tool, json })
@@ -543,7 +547,8 @@ export const register: Register = on => {
     }
 
     const args = e as unknown as Readonly<Record<string, unknown>>
-    const activity = activityOf(e.tool, args)
+    isDesigning ||= opensDesign(e.tool, args)
+    const activity = activityOf(e.tool, args, isDesigning)
     const detail = detailOf(e.tool, args)
     let hasFailed = false
     calls.set(e.tool_use_id, { tool: e.tool, activity, detail })
@@ -658,6 +663,7 @@ export const register: Register = on => {
     demo = undefined
     flush()
     isWorking = false
+    isDesigning = false
     calls.clear()
     asking = undefined
     lingering = []
