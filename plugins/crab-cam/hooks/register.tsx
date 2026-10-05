@@ -84,9 +84,12 @@ const LABELS: Record<Activity, string> = {
   sharing: 'Claude is sharing something with you',
 }
 
-const DETAIL_KEYS = ['file_path', 'notebook_path', 'command', 'pattern', 'query', 'url', 'description', 'skill'] as const
+// A command comes with a description of what it does in plain words, the one
+// the app shows too: that goes before the command itself.
+const DETAIL_KEYS = ['file_path', 'notebook_path', 'description', 'command', 'pattern', 'query', 'url', 'skill'] as const
 
-// What the call is about, in a few words: the file's name, the command, the pattern.
+// What the call is about, in a few words: the file's name, what the command
+// does, the pattern.
 function detailOf(tool: string, args: Readonly<Record<string, unknown>>): string {
   for (const key of DETAIL_KEYS) {
     const value = args[key]

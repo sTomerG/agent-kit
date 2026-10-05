@@ -139,3 +139,19 @@ test('the page of an artifact is designed, in the turn a design skill was loaded
   await clock.advance(1500)
   expect(await says($, /writing code/)).toBe(true)
 })
+
+test('a command shows what it does in plain words, where it says so', async ($, on) => {
+  const clock = session(on)
+  on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
+
+  await $.turn.start({ text: 'check it', turnId: 't1' })
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'a', command: 'git status --short', description: 'Show working tree status' })
+  await clock.advance(0)
+  expect(await says($, /Show working tree status/)).toBe(true)
+  expect(await says($, /git status/)).toBe(false)
+
+  await clock.advance(1500)
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'b', command: 'make build' })
+  await clock.advance(1500)
+  expect(await says($, /make build/)).toBe(true)
+})
