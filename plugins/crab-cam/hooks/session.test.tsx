@@ -155,3 +155,19 @@ test('a command shows what it does in plain words, where it says so', async ($, 
   await clock.advance(1500)
   expect(await says($, /make build/)).toBe(true)
 })
+
+test('a long description stays whole over two lines, and is cut beyond them', async ($, on) => {
+  const clock = session(on)
+  on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
+  const long = 'Create the v0.1.1 branch and search the crab-cam plugin for scene selection logic'
+
+  await $.turn.start({ text: 'look', turnId: 't1' })
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'a', command: 'ls', description: long })
+  await clock.advance(0)
+  expect(await says($, new RegExp(`^${long}$`))).toBe(true)
+
+  await clock.advance(1500)
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'b', command: 'ls', description: 'x'.repeat(200) })
+  await clock.advance(1500)
+  expect(await says($, /^x{139}…$/)).toBe(true)
+})

@@ -10,7 +10,12 @@ import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg, sceneRows } fro
 const COMMAND = 'crab-cam'
 const REST_AFTER_MS = 8000
 const TICK_MS = 600
-const DETAIL_LENGTH = 60
+// The detail may run on to a second line: the layout cuts whatever is wider
+// than the room before the shell, so the limit only keeps it to two lines.
+const DETAIL_LENGTH = 140
+// A detail up to this long is taken to fit on one line.
+const ONE_LINE = 60
+const DETAIL_ROWS = 2
 // How long a tool's scene stays up at least, so a call that returns at once
 // is still seen; a failure stays longer.
 const HOLD_MS = 1200
@@ -327,6 +332,28 @@ function readings(table: Elements['terminal'] | Elements['desktop'], gauged: Met
   )
 }
 
+// The line under the label: on one line and cut at the edge, or for a long
+// one wrapped over two rows and cut below them.
+function detailLine(table: Elements['terminal'] | Elements['desktop'], detail: string) {
+  const { Box, Text } = table
+
+  if (detail.length <= ONE_LINE) {
+    return (
+      <Text dimColor wrap="truncate-end">
+        {detail === '' ? ' ' : detail}
+      </Text>
+    )
+  }
+
+  return (
+    <Box height={DETAIL_ROWS} overflow="hidden">
+      <Text dimColor wrap="wrap">
+        {detail}
+      </Text>
+    </Box>
+  )
+}
+
 function terminalTree(
   table: Elements['terminal'],
   shown: Scene,
@@ -351,13 +378,11 @@ function terminalTree(
         ))}
       </Box>
       <Box flexDirection="column" flexGrow={1}>
-        <Text> </Text>
+        {detail.length <= ONE_LINE && <Text> </Text>}
         <Text bold wrap="truncate-end">
           {LABELS[activity]}
         </Text>
-        <Text dimColor wrap="truncate-end">
-          {detail === '' ? ' ' : detail}
-        </Text>
+        {detailLine(table, detail)}
       </Box>
       {gauged !== undefined && (
         <Box flexDirection="column" flexShrink={0}>
@@ -388,11 +413,7 @@ function desktopTree(table: Elements['desktop'], shown: Scene, gauged: Meter | u
       </Box>
       <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
         <Text bold>{label}</Text>
-        {detail !== '' && (
-          <Text dimColor wrap="truncate-end">
-            {detail}
-          </Text>
-        )}
+        {detail !== '' && detailLine(table, detail)}
       </Box>
       {gauged !== undefined && <Svg source={meterSvg(gauged)} alt={meterAlt(gauged)} width={meterWidth(gauged)} height={SCENE_HEIGHT} />}
       {gauged !== undefined && detailed && readings(table, gauged)}
