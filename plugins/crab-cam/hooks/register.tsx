@@ -24,7 +24,6 @@ const TICK_MS = 600
 const DETAIL_LENGTH = 140
 // A detail up to this long is taken to fit on one line.
 const ONE_LINE = 60
-const DETAIL_ROWS = 2
 // How long a tool's scene stays up at least, so a call that returns at once
 // is still seen; a failure stays longer.
 const HOLD_MS = 1200
@@ -463,25 +462,16 @@ function readings(table: Elements['terminal'] | Elements['desktop'], gauged: Met
   )
 }
 
-// The line under the label: on one line and cut at the edge, or for a long
-// one wrapped over two rows and cut below them.
+// The line under the label: a short one on one line and cut at the edge, a
+// long one wrapped onto as many rows as it needs. No room is set aside for a
+// second row, which would stand empty under a long one that fits on one.
 function detailLine(table: Elements['terminal'] | Elements['desktop'], detail: string) {
-  const { Box, Text } = table
-
-  if (detail.length <= ONE_LINE) {
-    return (
-      <Text dimColor wrap="truncate-end">
-        {detail === '' ? ' ' : detail}
-      </Text>
-    )
-  }
+  const { Text } = table
 
   return (
-    <Box height={DETAIL_ROWS} overflow="hidden">
-      <Text dimColor wrap="wrap">
-        {detail}
-      </Text>
-    </Box>
+    <Text dimColor wrap={detail.length <= ONE_LINE ? 'truncate-end' : 'wrap'}>
+      {detail === '' ? ' ' : detail}
+    </Text>
   )
 }
 
