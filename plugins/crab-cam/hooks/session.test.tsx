@@ -226,3 +226,52 @@ test('commands shows a command as typed, and once more describes it again', asyn
   await clock.advance(1500)
   expect(await says($, /Show the last three commits/)).toBe(true)
 })
+
+test('helpers at work show as how many there are and what they are doing', async ($, on) => {
+  const clock = session(on)
+  let finish = (): void => undefined
+  on('tool.call', { tool: 'Agent' }, () => new Promise(resolve => (finish = () => resolve({ result: 'ok' }))))
+  on('tool.call', { tool: 'Read' }, () => ({ result: 'ok' }))
+  on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
+  on('tool.call', { tool: 'SubagentHandback' }, () => ({ result: 'ok' }))
+
+  await $.turn.start({ text: 'review it', turnId: 't1' })
+  const helper = $.tool.call({ tool: 'Agent', tool_use_id: 'a', description: 'Review the diff', prompt: 'x' })
+  await clock.advance(0)
+  expect(await says($, /Review the diff/)).toBe(true)
+
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r', file_path: '/repo/a.ts', agentId: 'h1' })
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'b', command: 'npm test', agentId: 'h2' })
+  await clock.advance(1500)
+  expect(await says($, /putting helpers to work/)).toBe(true)
+  expect(await says($, /^2 helpers: 1 reading, 1 running tests$/)).toBe(true)
+
+  await $.tool.call({ tool: 'SubagentHandback', tool_use_id: 's', agentId: 'h1' })
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 'h1', reason: 'answer', agentId: 'h1' })
+  await clock.advance(1500)
+  expect(await says($, /^1 helper: running tests$/)).toBe(true)
+
+  finish()
+  await helper
+})
+
+test('a helper that outlives its turn keeps the crab at it until it is through', async ($, on) => {
+  const clock = session(on)
+  on('tool.call', { tool: 'Agent' }, () => ({ result: 'started' }))
+  on('tool.call', { tool: 'Grep' }, () => ({ result: 'ok' }))
+
+  await $.turn.start({ text: 'look into it', turnId: 't1' })
+  await $.tool.call({ tool: 'Agent', tool_use_id: 'a', description: 'Look into it', prompt: 'x', run_in_background: true })
+  await $.tool.call({ tool: 'Grep', tool_use_id: 'g', pattern: 'crab', agentId: 'h1' })
+  await $.classic.Stop({
+    ...STOP,
+    background_tasks: [{ id: 'h1', type: 'subagent', status: 'running', description: 'Look into it' }],
+  })
+  await $.turn.complete({ answer: 'Started.', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
+  await clock.advance(9000)
+  expect(await says($, /^1 helper: searching$/)).toBe(true)
+
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 'h1', reason: 'aborted', agentId: 'h1' })
+  await clock.advance(1500)
+  expect(await says($, /resting/)).toBe(true)
+})

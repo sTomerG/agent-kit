@@ -314,6 +314,68 @@ export function opensDesign(tool: string, args?: Readonly<Record<string, unknown
   return !isShell(tool) && BY_TOOL[tool] !== 'coding' && activityOf(tool, args) === 'designing'
 }
 
+// A helper at work: a subagent or one of a workflow's agents, with what it is
+// doing now and, where the call that started it said so, what it is for.
+export type Helper = { activity: Activity; about?: string }
+
+// What a helper is doing, in a word or two that reads after a count.
+const DOING: Record<Activity, string> = {
+  idle: 'resting',
+  thinking: 'thinking',
+  reading: 'reading',
+  coding: 'writing code',
+  writing: 'writing text',
+  designing: 'designing',
+  terminal: 'running commands',
+  searching: 'searching',
+  web: 'browsing',
+  delegating: 'delegating',
+  talking: 'replying',
+  asking: 'asking',
+  planning: 'planning',
+  tool: 'using tools',
+  done: 'done',
+  permission: 'waiting for permission',
+  compacting: 'tidying up',
+  error: 'stuck',
+  waiting: 'waiting',
+  testing: 'running tests',
+  git: 'using git',
+  installing: 'installing',
+  skill: 'loading skills',
+  memory: 'remembering',
+  sharing: 'sharing',
+}
+
+// The calls a helper's loop ends on to hand its answer back: no work of its own.
+export function isHandback(tool: string): boolean {
+  return tool === 'SubagentHandback' || tool === 'StructuredOutput'
+}
+
+// The helpers at work in one line: how many, and what they are doing, the
+// most common first. A lone helper goes by what it is for, where that is known.
+export function helpersLine(helpers: readonly Helper[]): string {
+  const [only] = helpers
+
+  if (only === undefined) {
+    return ''
+  }
+
+  if (helpers.length === 1) {
+    return `${only.about ?? '1 helper'}: ${DOING[only.activity]}`
+  }
+
+  const tally = new Map<Activity, number>()
+
+  for (const { activity } of helpers) {
+    tally.set(activity, (tally.get(activity) ?? 0) + 1)
+  }
+
+  const doing = [...tally].sort((one, other) => other[1] - one[1]).map(([activity, count]) => `${count} ${DOING[activity]}`)
+
+  return `${helpers.length} helpers: ${doing.join(', ')}`
+}
+
 // A task still running in the background once the turn is over.
 export type Lingering = { type: string; description: string; command?: string }
 

@@ -2,8 +2,17 @@ import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, Register, Timer } from 'claude-code'
 
 import type { Activity, Meter, Scene } from '../types'
-import type { Lingering } from './activity'
-import { activityOf, activityOfStreaming, isToldByArgs, opensDesign, sceneOfLingering, whole } from './activity'
+import type { Helper, Lingering } from './activity'
+import {
+  activityOf,
+  activityOfStreaming,
+  helpersLine,
+  isHandback,
+  isToldByArgs,
+  opensDesign,
+  sceneOfLingering,
+  whole,
+} from './activity'
 import { meterAlt, meterLines, meterRow, meterSvg, meterWidth } from './meter'
 import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg, sceneRows } from './scenes'
 
@@ -97,6 +106,11 @@ const DETAIL_KEYS = ['file_path', 'notebook_path', 'description', 'command', 'pa
 // The same with the command itself first, for who wants to see what runs.
 const RAW_KEYS = ['file_path', 'notebook_path', 'command', 'pattern', 'query', 'url', 'description', 'skill'] as const
 
+// A detail cut to what the band has room for.
+function clip(text: string): string {
+  return text.length > DETAIL_LENGTH ? `${text.slice(0, DETAIL_LENGTH - 1)}…` : text
+}
+
 // What the call is about, in a few words: the file's name, what the command
 // does, the pattern.
 function detailOf(tool: string, args: Readonly<Record<string, unknown>>, raw = false): string {
@@ -108,9 +122,8 @@ function detailOf(tool: string, args: Readonly<Record<string, unknown>>, raw = f
     }
 
     const isPath = key === 'file_path' || key === 'notebook_path'
-    const text = isPath ? (value.split('/').pop() ?? value) : (value.split('\n')[0] ?? value)
 
-    return text.length > DETAIL_LENGTH ? `${text.slice(0, DETAIL_LENGTH - 1)}…` : text
+    return clip(isPath ? (value.split('/').pop() ?? value) : (value.split('\n')[0] ?? value))
   }
 
   return tool.startsWith('mcp__') ? (tool.split('__').pop() ?? '') : ''
@@ -154,6 +167,13 @@ let muse: Timer | undefined
 let asking: string | undefined
 // What the last stop of the main loop left running in the background.
 let lingering: readonly Lingering[] = []
+// The helpers at work, by agent id: subagents and a workflow's agents alike,
+// each from its first event until its own turn ends, during a turn and after.
+const helpers = new Map<string, Helper>()
+// Runs while the helpers' line was drawn a moment ago; what changes meanwhile
+// is drawn once it is through, so six helpers at once do not make it flicker.
+let helperBeat: Timer | undefined
+let isHelperLineStale = false
 // The scene on screen, the hold it is under, and what came in meanwhile.
 let current: Painted | undefined
 let busy: Timer | undefined
@@ -220,10 +240,13 @@ function flush(): void {
   trailing = undefined
 }
 
-// What the session is doing; held back while the demo has the crab.
+// What the session is doing; held back while the demo has the crab. Helpers
+// at work show as how many there are and what they are doing, which says more
+// than the description of the call that started them.
 function show($: EngineInterface, activity: Activity, detail = '', hold = 0): void {
   if (demo === undefined) {
-    paint($, activity, detail, hold)
+    const isCounted = activity === 'delegating' && helpers.size > 0
+    paint($, activity, isCounted ? clip(helpersLine([...helpers.values()])) : detail, hold)
   }
 }
 
@@ -251,13 +274,21 @@ function stopTicking(): void {
 
 // The scene between turns: the background work still going, or rest.
 function settle($: EngineInterface): void {
-  const scene = sceneOfLingering(lingering)
+  if (helpers.size > 0) {
+    show($, 'delegating')
+
+    return
+  }
+
+  // A subagent's end is heard as it happens, so one the stop still listed is
+  // through by now; a workflow may be between two of its agents.
+  const scene = sceneOfLingering(lingering.filter(task => task.type !== 'subagent'))
 
   if (scene === undefined) {
     stopTicking()
     show($, 'idle')
   } else {
-    show($, scene.activity, scene.detail.length > DETAIL_LENGTH ? `${scene.detail.slice(0, DETAIL_LENGTH - 1)}…` : scene.detail)
+    show($, scene.activity, clip(scene.detail))
   }
 }
 
@@ -279,6 +310,83 @@ function restore($: EngineInterface): void {
     resume($)
   } else {
     settle($)
+  }
+}
+
+// Draws the helpers' line where the crab is on helpers: during a turn only
+// while the scene is theirs already, between turns whenever the crab is settled.
+function drawHelpers($: EngineInterface): void {
+  if (!isWorking) {
+    if (rest === undefined) {
+      settle($)
+    }
+  } else if (current?.activity === 'delegating') {
+    if (helpers.size > 0) {
+      show($, 'delegating')
+    } else {
+      resume($)
+    }
+  }
+}
+
+// A helper came, went or took up something else.
+function helpersChanged($: EngineInterface): void {
+  if (helperBeat !== undefined) {
+    isHelperLineStale = true
+
+    return
+  }
+
+  drawHelpers($)
+  helperBeat = $.clock.after(HOLD_MS, () => {
+    helperBeat = undefined
+
+    if (isHelperLineStale) {
+      isHelperLineStale = false
+      helpersChanged($)
+    }
+  })
+}
+
+// Takes note of a helper: that it is there, and what is new about it.
+function noteHelper($: EngineInterface, id: string, news: Partial<Helper> = {}): void {
+  const before = helpers.get(id)
+  const now: Helper = { activity: 'thinking', ...before, ...news }
+  helpers.set(id, now)
+
+  if (before?.activity !== now.activity || before.about !== now.about) {
+    helpersChanged($)
+  }
+}
+
+function dropHelper($: EngineInterface, id: string): void {
+  if (helpers.delete(id)) {
+    helpersChanged($)
+  }
+}
+
+// Drops the helpers that are through without their end having been heard, as
+// after a crash: those the engine lists as no longer running, and those it
+// does not list at all, a workflow's, once no workflow is left running.
+async function pruneHelpers($: EngineInterface): Promise<void> {
+  if (helpers.size === 0) {
+    return
+  }
+
+  const listed = await $.agent.list().catch(() => undefined)
+
+  if (listed === undefined) {
+    return
+  }
+
+  const hasWorkflow = lingering.some(task => task.type === 'workflow')
+
+  for (const id of [...helpers.keys()]) {
+    const info = listed.find(agent => agent.id === id)
+
+    if (info === undefined ? !hasWorkflow : info.status !== 'running') {
+      dropHelper($, id)
+    }
   }
 }
 
@@ -547,6 +655,8 @@ export const register: Register = on => {
 
   on('turn.step', async function* ($, e, next) {
     if (e.agentId !== undefined) {
+      noteHelper($, e.agentId)
+
       return yield* next(e)
     }
 
@@ -607,11 +717,14 @@ export const register: Register = on => {
   })
 
   on('tool.call', async ($, e, next) => {
+    const args = e as unknown as Readonly<Record<string, unknown>>
+
     if (e.agentId !== undefined) {
+      noteHelper($, e.agentId, isHandback(e.tool) ? {} : { activity: activityOf(e.tool, args) })
+
       return next(e)
     }
 
-    const args = e as unknown as Readonly<Record<string, unknown>>
     isDesigning ||= opensDesign(e.tool, args)
     const activity = activityOf(e.tool, args, isDesigning)
     const detail = detailOf(e.tool, args, await read($, isRaw))
@@ -690,8 +803,30 @@ export const register: Register = on => {
     }
   })
 
+  // A helper is there from the moment it starts, seconds before its first call.
+  on('classic.SubagentStart', ($, e, next) => {
+    noteHelper($, e.agent_id)
+
+    return next(e)
+  })
+
+  // The call that starts a subagent says what it is for; a workflow's agents
+  // start without one.
+  on('agent.spawn', async ($, e, next) => {
+    const started = await next(e)
+
+    if (started.agentId !== undefined) {
+      noteHelper($, started.agentId, { about: e.description === '' ? e.subagentType : e.description })
+    }
+
+    return started
+  })
+
+  // A helper's own turn ends once, whether it answered, failed or was stopped.
   on('turn.complete', ($, e, next) => {
     if (e.agentId !== undefined) {
+      dropHelper($, e.agentId)
+
       return next(e)
     }
 
@@ -732,6 +867,10 @@ export const register: Register = on => {
     calls.clear()
     asking = undefined
     lingering = []
+    helpers.clear()
+    helperBeat?.cancel()
+    helperBeat = undefined
+    isHelperLineStale = false
     paint($, 'idle', '')
 
     return next(e)
@@ -741,6 +880,7 @@ export const register: Register = on => {
   // crab then keeps at it rather than resting, until the next turn begins.
   on('classic.Stop', ($, e, next) => {
     lingering = e.background_tasks ?? []
+    void pruneHelpers($)
 
     if (!isWorking && rest === undefined) {
       settle($)

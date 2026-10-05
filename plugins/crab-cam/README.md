@@ -42,7 +42,7 @@ The scene follows the tool Claude calls. A shell command is read for what it doe
 | running tests | `pytest`, `vitest`, `jest`, `npm test`, `cargo test` and the like |
 | working with git | `git` and `gh`, also further on in a chain such as `make build && git status` |
 | installing packages | `npm install`, `pip install`, `uv add`, `brew install` and the like |
-| putting helpers to work | subagents and workflows, also while they run on in the background after the turn |
+| putting helpers to work | subagents and workflows, during the turn and while they run on after it; the line under it says how many are at work and what they are doing, such as `3 helpers: 2 reading, 1 running tests` |
 | making a plan | plan mode and task lists |
 | loading a skill | `Skill` |
 | writing text | an edit to a text file: `.md`, `.txt`, `.rst`, `README`, `CHANGELOG` and the like |

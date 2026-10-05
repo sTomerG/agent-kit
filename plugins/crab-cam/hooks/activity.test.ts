@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Activity } from '../types'
-import { activityOf, activityOfStreaming, opensDesign, sceneOfLingering } from './activity'
+import { activityOf, activityOfStreaming, helpersLine, isHandback, opensDesign, sceneOfLingering } from './activity'
 
 const COMMANDS: readonly (readonly [string, Activity])[] = [
   ['cat README.md', 'reading'],
@@ -169,4 +169,19 @@ test('a design skill, a design tool or the start of an artifact takes up design 
   expect(opensDesign('Edit', { file_path: 'src/app.css' })).toBe(false)
   expect(opensDesign('Bash', { command: "sed -i '' 's/red/blue/' theme.css" })).toBe(false)
   expect(opensDesign('Artifact', { file_path: 'scratchpad/tide-table.html' })).toBe(false)
+})
+
+test('helpers at work are counted by what they are doing, the most common first', () => {
+  expect(helpersLine([])).toBe('')
+  expect(helpersLine([{ activity: 'reading' }])).toBe('1 helper: reading')
+  expect(helpersLine([{ activity: 'testing', about: 'Review the diff' }])).toBe('Review the diff: running tests')
+  expect(helpersLine([{ activity: 'thinking' }, { activity: 'terminal' }, { activity: 'terminal', about: 'Build' }])).toBe(
+    '3 helpers: 2 running commands, 1 thinking',
+  )
+})
+
+test('the call a helper hands its answer back with is no work of its own', () => {
+  expect(isHandback('SubagentHandback')).toBe(true)
+  expect(isHandback('StructuredOutput')).toBe(true)
+  expect(isHandback('Read')).toBe(false)
 })
