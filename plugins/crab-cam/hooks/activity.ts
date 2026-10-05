@@ -71,7 +71,7 @@ const MEMORY = /\/memory\/|(^|\/)(CLAUDE|MEMORY)\.md$/
 // What may stand before the command that does the work: a change of
 // directory, a variable set for the one command, a wrapper.
 const LEAD =
-  /^\s*(?:(?:cd|pushd)\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*|[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+|(?:sudo|time|command|exec|nohup)\s+)/
+  /^\s*(?:(?:cd|pushd)\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*|[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+|(?:sudo|time|command|exec|nohup|do|then|else)\s+)/
 // Output sent to a file; a stream copied to another (`2>&1`) or thrown away is none.
 const TO_FILE = /(^|[^0-9&>])>{1,2}\s*(?!\/dev\/null)[^\s&|>]/
 
@@ -126,8 +126,24 @@ function programOf(command: string): { name: string; rest: string } {
   return { name: word.split('/').pop() ?? word, rest }
 }
 
-// Which scene a shell command is: a test run or an install wherever it stands
-// in the line, else by the first command, so `cat x | grep y` is reading.
+// The commands a line chains together, each from where it begins: what stands
+// in quotes is no command, nor is the text a heredoc feeds in.
+function chainOf(command: string): string[] {
+  const lines = command.split('\n')
+  const fed = lines.findIndex(line => line.includes('<<'))
+  const script = (fed === -1 ? lines : lines.slice(0, fed + 1)).join('\n')
+
+  return script.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""').split(/&&|\|\||[;|\n]/)
+}
+
+function isGit(command: string): boolean {
+  const { name } = programOf(command.trim())
+
+  return name === 'git' || name === 'gh'
+}
+
+// Which scene a shell command is: a test run, git or an install wherever it
+// stands in the line, else by the first command, so `cat x | grep y` is reading.
 function activityOfCommand(command: string, isDesigning: boolean): Activity {
   if (TESTS.test(command)) {
     return 'testing'
@@ -135,7 +151,7 @@ function activityOfCommand(command: string, isDesigning: boolean): Activity {
 
   const { name, rest } = programOf(command)
 
-  if (name === 'git' || name === 'gh') {
+  if (chainOf(command).some(isGit)) {
     return 'git'
   }
 

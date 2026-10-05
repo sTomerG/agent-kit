@@ -40,7 +40,7 @@ The scene follows the tool Claude calls. A shell command is read for what it doe
 | browsing the web | `WebFetch`, `WebSearch`, browser tools, `curl`, `wget` |
 | running a command | any other shell command |
 | running tests | `pytest`, `vitest`, `jest`, `npm test`, `cargo test` and the like |
-| working with git | `git` and `gh` |
+| working with git | `git` and `gh`, also further on in a chain such as `make build && git status` |
 | installing packages | `npm install`, `pip install`, `uv add`, `brew install` and the like |
 | putting helpers to work | subagents and workflows, also while they run on in the background after the turn |
 | making a plan | plan mode and task lists |
