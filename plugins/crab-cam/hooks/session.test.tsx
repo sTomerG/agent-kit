@@ -171,3 +171,34 @@ test('a long description stays whole over two lines, and is cut beyond them', as
   await clock.advance(1500)
   expect(await says($, /^x{139}…$/)).toBe(true)
 })
+
+test('a call still being written already says what it is about', async ($, on) => {
+  const clock = session(on)
+  let go = (): void => undefined
+  on('turn.step', async function* (_, e) {
+    yield { kind: 'tool', index: 0, id: 'w', name: 'Write' }
+    yield { kind: 'input', index: 0, json: '{"file_path": "/repo/src/tide-table.ts", "content": "const' }
+    await new Promise<void>(resolve => (go = resolve))
+    yield { kind: 'tool', index: 1, id: 'c', name: 'Bash' }
+    yield { kind: 'input', index: 1, json: '{"command": "git status --short && git log --oneline -3", ' }
+    yield { kind: 'input', index: 1, json: '"description": "Show changed files"' }
+
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use', usage: null }
+  })
+
+  await $.turn.start({ text: 'write it', turnId: 't1' })
+  const step = (async () => {
+    for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'm', messageCount: 1 })) {
+      // The chunks reach the mod on their way here.
+    }
+  })()
+  await clock.advance(0)
+  expect(await says($, /writing code/)).toBe(true)
+  expect(await says($, /^tide-table\.ts$/)).toBe(true)
+
+  go()
+  await step
+  expect(await says($, /working with git/)).toBe(true)
+  expect(await says($, /Show changed files/)).toBe(true)
+
+})

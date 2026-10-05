@@ -175,7 +175,7 @@ const TELLING: Record<string, string> = {
 }
 
 // A string argument once all of it has arrived.
-function whole(json: string, key: string): string | undefined {
+export function whole(json: string, key: string): string | undefined {
   return new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`).exec(json)?.[1]?.replace(/\\(.)/g, '$1')
 }
 

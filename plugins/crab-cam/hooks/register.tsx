@@ -3,7 +3,7 @@ import type { Elements, EngineInterface, Register, Timer } from 'claude-code'
 
 import type { Activity, Meter, Scene } from '../types'
 import type { Lingering } from './activity'
-import { activityOf, activityOfStreaming, isToldByArgs, opensDesign, sceneOfLingering } from './activity'
+import { activityOf, activityOfStreaming, isToldByArgs, opensDesign, sceneOfLingering, whole } from './activity'
 import { meterAlt, meterLines, meterRow, meterSvg, meterWidth } from './meter'
 import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg, sceneRows } from './scenes'
 
@@ -110,6 +110,24 @@ function detailOf(tool: string, args: Readonly<Record<string, unknown>>): string
   }
 
   return tool.startsWith('mcp__') ? (tool.split('__').pop() ?? '') : ''
+}
+
+// The arguments that say what a call is about before it is made, once all of
+// one has arrived: the file written to, the skill, what a command does.
+const EARLY_KEYS = ['file_path', 'skill', 'description'] as const
+
+// What a call is about while its arguments are still arriving; nothing until
+// one of the telling ones is whole.
+function detailOfStreaming(tool: string, json: string): string {
+  for (const key of EARLY_KEYS) {
+    const value = whole(json, key)
+
+    if (value !== undefined) {
+      return detailOf(tool, { [key]: value })
+    }
+  }
+
+  return ''
 }
 
 type Painted = { activity: Activity; detail: string; hold: number }
@@ -522,7 +540,7 @@ export const register: Register = on => {
     // The calls of this response whose arguments are still arriving and say
     // what the call is about, by block: the tool and what has arrived, until
     // it settles the scene.
-    const arriving = new Map<number, { tool: string; json: string }>()
+    const arriving = new Map<number, { tool: string; json: string; activity?: Activity }>()
 
     for await (const chunk of next(e)) {
       if (chunk.kind === 'thinking') {
@@ -550,13 +568,20 @@ export const register: Register = on => {
 
         if (before !== undefined) {
           const json = before.json + chunk.json
-          const activity = activityOfStreaming(before.tool, json, isDesigning)
+          const activity = before.activity ?? activityOfStreaming(before.tool, json, isDesigning)
+          const detail = activity === undefined ? '' : detailOfStreaming(before.tool, json)
 
-          if (activity === undefined) {
-            arriving.set(chunk.index, { tool: before.tool, json })
+          // The scene shows as soon as it is settled, and what it is about
+          // as soon as that is in: a command's description comes after the
+          // command, which may be seconds later.
+          if (detail === '') {
+            arriving.set(chunk.index, { tool: before.tool, json, activity })
           } else {
             arriving.delete(chunk.index)
-            show($, activity)
+          }
+
+          if (activity !== undefined && (before.activity === undefined || detail !== '')) {
+            show($, activity, detail)
           }
         }
       }
