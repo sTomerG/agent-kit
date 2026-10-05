@@ -34,6 +34,14 @@ export type Meter = { context: number | null; fiveHour: number | null; week: num
 
 declare module 'claude-code' {
   interface PluginState {
-    'crab-cam': { scene: Scene; isHidden: boolean; frame: number; meter: Meter; isMetered: boolean; isDetailed: boolean }
+    'crab-cam': {
+      scene: Scene
+      isHidden: boolean
+      frame: number
+      meter: Meter
+      isMetered: boolean
+      isDetailed: boolean
+      isRaw: boolean
+    }
   }
 }
