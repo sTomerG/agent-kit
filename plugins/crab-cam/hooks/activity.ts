@@ -249,8 +249,8 @@ export function activityOf(tool: string, args?: Readonly<Record<string, unknown>
     return 'designing'
   }
 
-  // A design tool or a design skill, whatever else its name says.
-  if (/design|figma/i.test(tool) || (tool === 'Skill' && typeof args?.skill === 'string' && /design/i.test(args.skill))) {
+  // A design tool or a skill for designing or drawing, whatever else its name says.
+  if (/design|figma/i.test(tool) || (tool === 'Skill' && typeof args?.skill === 'string' && /design|diagram/i.test(args.skill))) {
     return 'designing'
   }
 

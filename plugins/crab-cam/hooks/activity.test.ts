@@ -153,6 +153,7 @@ test('a page is designed once the turn has taken up design work', () => {
 
 test('a design skill, a design tool or the start of an artifact takes up design work', () => {
   expect(opensDesign('Skill', { skill: 'artifact-design' })).toBe(true)
+  expect(opensDesign('Skill', { skill: 'artifact-diagramming' })).toBe(true)
   expect(opensDesign('Artifact', { action: 'quickstart', intent: 'other' })).toBe(true)
   expect(opensDesign('mcp__figma__get_file')).toBe(true)
   expect(opensDesign('Skill', { skill: 'code-review' })).toBe(false)
