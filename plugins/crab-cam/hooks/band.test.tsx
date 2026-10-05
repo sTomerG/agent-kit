@@ -6,8 +6,8 @@ const BAND = {
   props: { hasSurvey: false, isWorking: false, maxRows: 8, bodyColumns: 120, scroll: { offset: 0, bodyRows: 8 }, view: {} },
 } as const
 
-test('the band draws on the terminal and on the desktop', async $ => {
-  for (const surface of ['terminal', 'desktop'] as const) {
+test('the band draws on the terminal, the desktop and VS Code', async $ => {
+  for (const surface of ['terminal', 'desktop', 'vscode'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
 
     expect(await ui.find({ type: 'Text', text: /Claude is resting/ })).toBeDefined()
@@ -15,7 +15,7 @@ test('the band draws on the terminal and on the desktop', async $ => {
   }
 })
 
-test('details spell the readings out beside the meter on both surfaces', async ($, on) => {
+test('details spell the readings out beside the meter on every surface', async ($, on) => {
   on('session.measure', () => ({ changed: [] }))
   await $.command.run({
     command: 'crab-cam',
@@ -32,7 +32,7 @@ test('details spell the readings out beside the meter on both surfaces', async (
     ],
   })
 
-  for (const surface of ['terminal', 'desktop'] as const) {
+  for (const surface of ['terminal', 'desktop', 'vscode'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
 
     expect(await ui.find({ type: 'Text', text: /Context window/ })).toBeDefined()
