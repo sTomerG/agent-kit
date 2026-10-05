@@ -442,7 +442,7 @@ async function gauge($: EngineInterface, measured: Measured): Promise<void> {
 
 // The meter's readings spelled out as a small table: the labels dim in one
 // column, the figures bold in the next, so the figures line up.
-function readings(table: Elements['terminal'] | Elements['desktop'], gauged: Meter) {
+function readings(table: Elements['terminal'] | Elements['desktop'] | Elements['vscode'], gauged: Meter) {
   const { Box, Text } = table
   const lines = meterLines(gauged)
 
@@ -516,7 +516,7 @@ function terminalTree(
   )
 }
 
-function desktopTree(table: Elements['desktop'], shown: Scene, gauged: Meter | undefined, detailed: boolean) {
+function desktopTree(table: Elements['desktop'] | Elements['vscode'], shown: Scene, gauged: Meter | undefined, detailed: boolean) {
   const { Box, Svg, Text } = table
   const { activity, detail } = shown
   const label = LABELS[activity]
@@ -892,7 +892,8 @@ export const register: Register = on => {
       return terminalTree($.ui.resolve(e), shown, await read($, frame), gauged, detailed)
     }
 
-    if (e.surface === 'desktop') {
+    // VS Code draws the same tree as the desktop: it has every element it uses.
+    if (e.surface === 'desktop' || e.surface === 'vscode') {
       return desktopTree($.ui.resolve(e), shown, gauged, detailed)
     }
 
