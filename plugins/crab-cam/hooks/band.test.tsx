@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 const BAND = {
   plugin: 'crab-cam',
@@ -39,4 +39,43 @@ test('details spell the readings out beside the meter on both surfaces', async (
     expect(await ui.find({ type: 'Text', text: /57%/ })).toBeDefined()
     await ui.unmount()
   }
+})
+
+test('the crab keeps its shape, with black behind the eyes on the terminal', async $ => {
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+
+  expect(await ui.find({ type: 'Text', text: '▝▜█████▛▘' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '▛███▜', props: { backgroundColor: 'black' } })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the demo animates the terminal between turns, and stops at rest after', async ($, on) => {
+  on('session.surfaces', () => ({ value: ['terminal'] }))
+  const clock = mock.clock(on)
+  const shows = async (text: string) => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    const found = await ui.find({ type: 'Text', text })
+    await ui.unmount()
+
+    return found !== undefined
+  }
+
+  await $.command.run({
+    command: 'crab-cam',
+    args: 'demo',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: false, columns: 120 },
+  })
+  expect(await shows('°│ ·   │')).toBe(true)
+  await clock.advance(600)
+  expect(await shows('°│ ··  │')).toBe(true)
+
+  // Past the last of the demo's scenes, three seconds each.
+  await clock.advance(120_000)
+  const resting = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await resting.find({ type: 'Text', text: /Claude is resting/ })).toBeDefined()
+  await resting.unmount()
+  const before = [await shows(' z  '), await shows('  z '), await shows('   Z')]
+  await clock.advance(600)
+  expect([await shows(' z  '), await shows('  z '), await shows('   Z')]).toEqual(before)
 })
