@@ -40,3 +40,11 @@ test('details spell the readings out beside the meter on both surfaces', async (
     await ui.unmount()
   }
 })
+
+test('the crab keeps its shape, with black behind the eyes on the terminal', async $ => {
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+
+  expect(await ui.find({ type: 'Text', text: '▝▜█████▛▘' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '▛███▜', props: { backgroundColor: 'black' } })).toBeDefined()
+  await ui.unmount()
+})

@@ -475,6 +475,26 @@ function detailLine(table: Elements['terminal'] | Elements['desktop'], detail: s
   )
 }
 
+// The eyes are the gaps in the top row's quadrant glyphs, so they show whatever
+// is behind the cell. Claude's own mascot paints that stretch black; without
+// it the eyes turn white on a light terminal.
+function crabRow(table: Elements['terminal'], row: string, index: number) {
+  const { Box, Text } = table
+  const eyes = row.indexOf('▛')
+  if (index !== 0 || eyes === -1) return <Text color="claude">{row}</Text>
+  const end = row.indexOf('▜') + 1
+
+  return (
+    <Box flexDirection="row">
+      <Text color="claude">{row.slice(0, eyes)}</Text>
+      <Text color="claude" backgroundColor="black">
+        {row.slice(eyes, end)}
+      </Text>
+      <Text color="claude">{row.slice(end)}</Text>
+    </Box>
+  )
+}
+
 function terminalTree(
   table: Elements['terminal'],
   shown: Scene,
@@ -489,9 +509,7 @@ function terminalTree(
   return (
     <Box flexDirection="row" gap={2} width="100%">
       <Box flexDirection="column" flexShrink={0}>
-        {rows.crab.map(row => (
-          <Text color="claude">{row}</Text>
-        ))}
+        {rows.crab.map((row, index) => crabRow(table, row, index))}
       </Box>
       <Box flexDirection="column" flexShrink={0}>
         {rows.prop.map(row => (
