@@ -1,6 +1,6 @@
 # crab-cam
 
-A Claude Code mod: a small crab above the prompt acts out what Claude is doing, in the terminal and in the desktop app. Beside it, a shell shows how full the context window is and how much of your rate limits is used.
+A Claude Code mod: a small crab above the prompt acts out what Claude is doing, in the terminal, the desktop app and VS Code. Beside it, a shell shows how full the context window is and how much of your rate limits is used.
 
 > Optimised for the Claude Code desktop app.
 
