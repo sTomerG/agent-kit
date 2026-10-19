@@ -266,6 +266,16 @@ function museLater($: EngineInterface): void {
   })
 }
 
+// Only the terminal's glyph scenes are animated by a tick; the desktop's
+// drawing animates itself.
+async function startTicking($: EngineInterface): Promise<void> {
+  if (ticker === undefined && (await $.session.surfaces()).includes('terminal')) {
+    ticker = $.clock.every(TICK_MS, () => {
+      void update($, frame, tick => (tick + 1) % 60).catch(() => undefined)
+    })
+  }
+}
+
 function stopTicking(): void {
   ticker?.cancel()
   ticker = undefined
@@ -397,11 +407,14 @@ function stopTimers(): void {
 
 // Walks every scene in turn, so each animation can be seen without a task
 // that happens to raise it; the session's own scenes wait until it is through.
-function playDemo($: EngineInterface): void {
+// Between turns nothing ticks, so the demo starts the tick itself; the crab
+// at rest afterwards stops it again.
+async function playDemo($: EngineInterface): Promise<void> {
   demo?.cancel()
   flush()
   let index = 0
   paint($, DEMO[0] ?? 'idle', DEMO_DETAIL)
+  await startTicking($)
 
   demo = $.clock.every(DEMO_MS, () => {
     index += 1
@@ -591,7 +604,7 @@ export const register: Register = on => {
 
     if (argument === 'demo') {
       await update($, isHidden, () => false)
-      playDemo($)
+      await playDemo($)
 
       return { text: `The crab plays all ${DEMO.length} scenes, ${DEMO_MS / 1000} seconds each.` }
     }
@@ -650,13 +663,7 @@ export const register: Register = on => {
     flush()
     show($, 'thinking')
 
-    // Only the terminal's glyph scenes are animated by a tick; the desktop's
-    // drawing animates itself.
-    if (ticker === undefined && (await $.session.surfaces()).includes('terminal')) {
-      ticker = $.clock.every(TICK_MS, () => {
-        void update($, frame, tick => (tick + 1) % 60).catch(() => undefined)
-      })
-    }
+    await startTicking($)
 
     return next(e)
   })
