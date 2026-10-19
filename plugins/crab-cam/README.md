@@ -1,8 +1,8 @@
 # crab-cam
 
-A Claude Code mod: a small crab above the prompt acts out what Claude is doing, in the terminal and in the desktop app. Beside it, a shell shows how full the context window is and how much of your rate limits is used.
+A Claude Code mod: a small crab above the prompt acts out what Claude is doing, in the terminal, the desktop app and VS Code. Beside it, a shell shows how full the context window is and how much of your rate limits is used.
 
-> Optimised for the Claude Code desktop app. Not shown in VS Code yet: the extension does not draw plugin UI.
+> Optimised for the Claude Code desktop app.
 
 ![The crab-cam band cycling through thinking, reading, searching, writing code, running tests, git and done](assets/demo-scenes.svg)
 
