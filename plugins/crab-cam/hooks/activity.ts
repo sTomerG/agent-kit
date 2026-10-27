@@ -319,7 +319,7 @@ export function opensDesign(tool: string, args?: Readonly<Record<string, unknown
 export type Helper = { activity: Activity; about?: string }
 
 // What a helper is doing, in a word or two that reads after a count.
-const DOING: Record<Activity, string> = {
+export const DOING: Record<Activity, string> = {
   idle: 'resting',
   thinking: 'thinking',
   reading: 'reading',
@@ -352,8 +352,8 @@ export function isHandback(tool: string): boolean {
   return tool === 'SubagentHandback' || tool === 'StructuredOutput'
 }
 
-// The helpers at work in one line: how many, and what they are doing, the
-// most common first. A lone helper goes by what it is for, where that is known.
+// The crew at work in one line: how many, and what they are doing, the most
+// common first. A lone helper goes by what it is for, where that is known.
 export function helpersLine(helpers: readonly Helper[]): string {
   const [only] = helpers
 
@@ -362,7 +362,7 @@ export function helpersLine(helpers: readonly Helper[]): string {
   }
 
   if (helpers.length === 1) {
-    return `${only.about ?? '1 helper'}: ${DOING[only.activity]}`
+    return `${only.about ?? 'crew of 1'}: ${DOING[only.activity]}`
   }
 
   const tally = new Map<Activity, number>()
@@ -373,11 +373,12 @@ export function helpersLine(helpers: readonly Helper[]): string {
 
   const doing = [...tally].sort((one, other) => other[1] - one[1]).map(([activity, count]) => `${count} ${DOING[activity]}`)
 
-  return `${helpers.length} helpers: ${doing.join(', ')}`
+  return `crew of ${helpers.length}: ${doing.join(', ')}`
 }
 
-// A task still running in the background once the turn is over.
-export type Lingering = { type: string; description: string; command?: string }
+// A task still running in the background once the turn is over; a workflow
+// goes by its name.
+export type Lingering = { type: string; description: string; command?: string; name?: string }
 
 // A subscription that stays open for as long as the session does, such as the
 // live updates of a published artifact. Nothing is in progress, so it must not

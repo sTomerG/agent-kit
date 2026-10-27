@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, Register, Timer } from 'claude-code'
 
-import type { Activity, Meter, Scene } from '../types'
+import type { Activity, Crew, CrewView, Meter, Scene } from '../types'
 import type { Helper, Lingering } from './activity'
 import {
   activityOf,
@@ -13,7 +13,9 @@ import {
   sceneOfLingering,
   whole,
 } from './activity'
+import { NO_CREW, amend, finish, isWorking as isCrewWorking, join, sampleCrew, step, workflowNameOf } from './crew'
 import { meterAlt, meterLines, meterRow, meterSvg, meterWidth } from './meter'
+import { PANE, PANE_TITLE, crabRow, crewTree, groupKey, stepsKey } from './pane'
 import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg, sceneRows } from './scenes'
 
 const COMMAND = 'crab-cam'
@@ -34,6 +36,8 @@ const MAX_HELD = 3
 // shorter, and the work then reads as one stretch of reading or searching.
 const THINK_AFTER_MS = 5000
 const DEMO_MS = 3000
+// How often the elapsed times on the crew's cards move on.
+const CREW_CLOCK_MS = 1000
 const DEMO_DETAIL = 'demo'
 const DEMO: readonly Activity[] = [
   'thinking',
@@ -70,6 +74,11 @@ const isMetered = atom({ plugin: 'crab-cam', key: 'isMetered' } as const, true)
 const isDetailed = atom({ plugin: 'crab-cam', key: 'isDetailed' } as const, false)
 // Whether a command shows as typed rather than by its description.
 const isRaw = atom({ plugin: 'crab-cam', key: 'isRaw' } as const, false)
+const crew = atom({ plugin: 'crab-cam', key: 'crew' } as const, NO_CREW)
+const demoCrew = atom({ plugin: 'crab-cam', key: 'demoCrew' } as const, null as Crew | null)
+const crewView = atom({ plugin: 'crab-cam', key: 'crewView' } as const, { open: [], folded: [] } as CrewView)
+// Whether the pane opens by itself when a new round of helpers starts.
+const isCrewAuto = atom({ plugin: 'crab-cam', key: 'isCrewAuto' } as const, true)
 
 const LABELS: Record<Activity, string> = {
   idle: 'Claude is resting',
@@ -81,7 +90,7 @@ const LABELS: Record<Activity, string> = {
   terminal: 'Claude is running a command',
   searching: 'Claude is searching',
   web: 'Claude is browsing the web',
-  delegating: 'Claude is putting helpers to work',
+  delegating: 'Claude is putting the crew to work',
   talking: 'Claude is writing a reply',
   asking: 'Claude has a question for you',
   planning: 'Claude is making a plan',
@@ -173,6 +182,15 @@ const helpers = new Map<string, Helper>()
 // is drawn once it is through, so six helpers at once do not make it flicker.
 let helperBeat: Timer | undefined
 let isHelperLineStale = false
+// The pane's crew is written one change after another, each with the time it
+// was made, so a helper's first step never lands before the helper does.
+let crewWrites: Promise<unknown> = Promise.resolve()
+// The helpers the pane has taken on, so each is taken on once.
+const enlisted = new Set<string>()
+// Runs while one of the crew is at work, moving its elapsed time on.
+let crewClock: Timer | undefined
+// The workflows called while no round of helpers runs: the next round's.
+let upcoming: readonly string[] = []
 // The scene on screen, the hold it is under, and what came in meanwhile.
 let current: Painted | undefined
 let busy: Timer | undefined
@@ -395,8 +413,105 @@ async function pruneHelpers($: EngineInterface): Promise<void> {
 
     if (info === undefined ? !hasWorkflow : info.status !== 'running') {
       dropHelper($, id)
+      const hasFailed = info !== undefined && info.status !== 'completed'
+      void changeCrew($, (before, now) => amend(before, id, member => finish(member, hasFailed, now)))
     }
   }
+}
+
+function changeCrew($: EngineInterface, change: (before: Crew, now: number) => Crew): Promise<unknown> {
+  crewWrites = crewWrites
+    .then(async () => {
+      const now = await $.clock.now()
+
+      return update($, crew, before => change(before, now))
+    })
+    .catch(() => undefined)
+
+  return crewWrites
+}
+
+function stopCrewClock(): void {
+  crewClock?.cancel()
+  crewClock = undefined
+}
+
+function startCrewClock($: EngineInterface): void {
+  crewClock ??= $.clock.every(CREW_CLOCK_MS, () => {
+    void changeCrew($, (before, now) => {
+      if (!isCrewWorking(before)) {
+        stopCrewClock()
+
+        return before
+      }
+
+      return { ...before, now }
+    })
+  })
+}
+
+// Tells a subagent from a workflow's agent: the engine lists the first, never
+// the second. Nor does it list its own forks, which are no one's crew: an
+// agent it does not list counts as a workflow's once one is known to run, or
+// once it has a type, which forks do not get.
+async function sortMember($: EngineInterface, id: string): Promise<void> {
+  const listed = await $.agent.list().catch(() => undefined)
+  const info = listed?.find(agent => agent.id === id)
+  const hasWorkflow = lingering.some(task => task.type === 'workflow')
+
+  await changeCrew($, before =>
+    amend(before, id, member => {
+      if (member.group !== null) return member
+      if (info !== undefined) {
+        return { ...member, group: 'subagent', about: member.about ?? (info.description || null), type: member.type ?? info.type }
+      }
+
+      return member.type !== null || hasWorkflow || before.workflows.length > 0 ? { ...member, group: 'workflow' } : member
+    }),
+  )
+}
+
+// Takes a helper on in the pane the first time it is heard of. The first of a
+// new round clears the cards of the last, and opens the pane where that is on.
+function enlist($: EngineInterface, id: string): void {
+  if (enlisted.has(id)) {
+    return
+  }
+
+  enlisted.add(id)
+  let isNewRound = false
+  void changeCrew($, (before, now) => {
+    const joined = join(before, id, now, upcoming)
+    isNewRound = joined.isNewRound
+
+    return joined.crew
+  }).then(async () => {
+    startCrewClock($)
+
+    if (isNewRound) {
+      upcoming = []
+
+      if (demo === undefined && (await read($, isCrewAuto))) {
+        await $.ui.open({ id: PANE, title: PANE_TITLE }).catch(() => undefined)
+      }
+    }
+
+    await sortMember($, id)
+  })
+}
+
+// A workflow was heard of: the round under way goes by its name too, or the
+// next one does when none runs.
+function heardWorkflow($: EngineInterface, name: string): void {
+  void changeCrew($, before => {
+    if (isCrewWorking(before)) {
+      return before.workflows.includes(name) ? before : { ...before, workflows: [...before.workflows, name] }
+    }
+
+    upcoming = upcoming.includes(name) ? upcoming : [...upcoming, name]
+
+    return before
+  })
 }
 
 function stopTimers(): void {
@@ -408,12 +523,17 @@ function stopTimers(): void {
 // Walks every scene in turn, so each animation can be seen without a task
 // that happens to raise it; the session's own scenes wait until it is through.
 // Between turns nothing ticks, so the demo starts the tick itself; the crab
-// at rest afterwards stops it again.
+// at rest afterwards stops it again. The pane shows a sample crew meanwhile,
+// and closes again after if the demo opened it.
 async function playDemo($: EngineInterface): Promise<void> {
   demo?.cancel()
   flush()
   let index = 0
   paint($, DEMO[0] ?? 'idle', DEMO_DETAIL)
+  const started = await $.clock.now()
+  const wasOpen = (await $.ui.panes().catch(() => [])).some(pane => pane.id === PANE)
+  await update($, demoCrew, () => sampleCrew(0, started, started))
+  await $.ui.open({ id: PANE, title: PANE_TITLE }).catch(() => undefined)
   await startTicking($)
 
   demo = $.clock.every(DEMO_MS, () => {
@@ -424,13 +544,25 @@ async function playDemo($: EngineInterface): Promise<void> {
       demo?.cancel()
       demo = undefined
       restore($)
+      void update($, demoCrew, () => null)
+        .then(() => (wasOpen ? undefined : $.ui.close({ id: PANE })))
+        .catch(() => undefined)
 
       return
     }
 
     paint($, activity, DEMO_DETAIL)
+    const at = index
+    void $.clock
+      .now()
+      .then(now => update($, demoCrew, () => sampleCrew(at, started, now)))
+      .catch(() => undefined)
   })
 }
+
+// A list with the id taken out, or put in where it was not.
+const toggled = (list: readonly string[], id: string): string[] =>
+  list.includes(id) ? list.filter(one => one !== id) : [...list, id]
 
 type Measured = {
   context: { percent?: number }
@@ -488,26 +620,6 @@ function detailLine(table: Elements['terminal'] | Elements['desktop'], detail: s
   )
 }
 
-// The eyes are the gaps in the top row's quadrant glyphs, so they show whatever
-// is behind the cell. Claude's own mascot paints that stretch black; without
-// it the eyes turn white on a light terminal.
-function crabRow(table: Elements['terminal'], row: string, index: number) {
-  const { Box, Text } = table
-  const eyes = row.indexOf('▛')
-  if (index !== 0 || eyes === -1) return <Text color="claude">{row}</Text>
-  const end = row.indexOf('▜') + 1
-
-  return (
-    <Box flexDirection="row">
-      <Text color="claude">{row.slice(0, eyes)}</Text>
-      <Text color="claude" backgroundColor="black">
-        {row.slice(eyes, end)}
-      </Text>
-      <Text color="claude">{row.slice(end)}</Text>
-    </Box>
-  )
-}
-
 function terminalTree(
   table: Elements['terminal'],
   shown: Scene,
@@ -522,7 +634,7 @@ function terminalTree(
   return (
     <Box flexDirection="row" gap={2} width="100%">
       <Box flexDirection="column" flexShrink={0}>
-        {rows.crab.map((row, index) => crabRow(table, row, index))}
+        {rows.crab.map((row, index) => crabRow(table, row, index, 'claude'))}
       </Box>
       <Box flexDirection="column" flexShrink={0}>
         {rows.prop.map(row => (
@@ -578,8 +690,8 @@ export const register: Register = on => {
     await $.command.register({
       name: COMMAND,
       description:
-        'Hide or show the crab; "demo" plays every scene, "meter" shows or hides the shell, "details" its readings in figures, "commands" shows commands as typed',
-      argumentHint: '[demo|meter|details|commands]',
+        'Hide or show the crab; "demo" plays every scene, "meter" shows or hides the shell, "details" its readings in figures, "commands" shows commands as typed, "crew" opens or closes the Crab crew pane, "crew auto" whether it opens by itself',
+      argumentHint: '[demo|meter|details|commands|crew|crew auto]',
     })
 
     // A reload in the middle of a turn finds the turn's scene in place and
@@ -600,13 +712,37 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: COMMAND }, async ($, e) => {
-    const argument = e.args.trim()
+    const argument = e.args.trim().split(/\s+/).join(' ')
+
+    if (argument === 'crew') {
+      if ((await $.ui.panes()).some(pane => pane.id === PANE)) {
+        await $.ui.close({ id: PANE })
+
+        return { text: 'The Crab crew pane is closed. /crab-cam crew opens it again.' }
+      }
+
+      await $.ui.open({ id: PANE, title: PANE_TITLE })
+
+      return { text: 'The Crab crew pane is open: a card for every helper Claude puts to work.' }
+    }
+
+    if (argument === 'crew auto') {
+      const auto = await update($, isCrewAuto, value => !value)
+
+      return {
+        text: auto
+          ? 'The Crab crew pane opens by itself again when a new round of helpers starts.'
+          : 'The Crab crew pane no longer opens by itself. /crab-cam crew opens it.',
+      }
+    }
 
     if (argument === 'demo') {
       await update($, isHidden, () => false)
       await playDemo($)
 
-      return { text: `The crab plays all ${DEMO.length} scenes, ${DEMO_MS / 1000} seconds each.` }
+      return {
+        text: `The crab plays all ${DEMO.length} scenes, ${DEMO_MS / 1000} seconds each, with a sample crew in the Crab crew pane.`,
+      }
     }
 
     if (argument === 'meter') {
@@ -669,10 +805,23 @@ export const register: Register = on => {
   })
 
   on('turn.step', async function* ($, e, next) {
-    if (e.agentId !== undefined) {
-      noteHelper($, e.agentId)
+    const helper = e.agentId
 
-      return yield* next(e)
+    if (helper !== undefined) {
+      noteHelper($, helper)
+      enlist($, helper)
+      const done = yield* next(e)
+      const { usage } = done
+      // What it has in hand: the whole prompt, cached or not, and the reply.
+      const tokens =
+        usage === null
+          ? null
+          : usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens + usage.output_tokens
+      void changeCrew($, before =>
+        amend(before, helper, member => ({ ...member, model: usage?.model ?? e.model, tokens: tokens ?? member.tokens })),
+      )
+
+      return done
     }
 
     // A reload in the middle of a turn has no turn.start to go by.
@@ -734,10 +883,28 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     const args = e as unknown as Readonly<Record<string, unknown>>
 
-    if (e.agentId !== undefined) {
-      noteHelper($, e.agentId, isHandback(e.tool) ? {} : { activity: activityOf(e.tool, args) })
+    const helper = e.agentId
+
+    if (helper !== undefined) {
+      const isOwnWork = !isHandback(e.tool)
+      const activity = activityOf(e.tool, args)
+      noteHelper($, helper, isOwnWork ? { activity } : {})
+      enlist($, helper)
+
+      if (isOwnWork) {
+        const detail = detailOf(e.tool, args, await read($, isRaw))
+        void changeCrew($, before => amend(before, helper, member => step(member, activity, detail)))
+      }
 
       return next(e)
+    }
+
+    if (e.tool === 'Workflow') {
+      const name = workflowNameOf(args)
+
+      if (name !== undefined) {
+        heardWorkflow($, name)
+      }
     }
 
     isDesigning ||= opensDesign(e.tool, args)
@@ -820,7 +987,16 @@ export const register: Register = on => {
 
   // A helper is there from the moment it starts, seconds before its first call.
   on('classic.SubagentStart', ($, e, next) => {
-    noteHelper($, e.agent_id)
+    const id = e.agent_id
+    const type = e.agent_type
+    noteHelper($, id)
+    enlist($, id)
+
+    if (type !== undefined && type !== '') {
+      void changeCrew($, before => amend(before, id, member => ({ ...member, type: member.type ?? type }))).then(() =>
+        sortMember($, id),
+      )
+    }
 
     return next(e)
   })
@@ -830,8 +1006,21 @@ export const register: Register = on => {
   on('agent.spawn', async ($, e, next) => {
     const started = await next(e)
 
-    if (started.agentId !== undefined) {
-      noteHelper($, started.agentId, { about: e.description === '' ? e.subagentType : e.description })
+    const id = started.agentId
+
+    if (id !== undefined) {
+      const about = e.description === '' ? e.subagentType : e.description
+      noteHelper($, id, { about })
+      enlist($, id)
+      void changeCrew($, before =>
+        amend(before, id, member => ({
+          ...member,
+          group: 'subagent',
+          about,
+          type: e.subagentType || member.type,
+          model: member.model ?? started.model,
+        })),
+      )
     }
 
     return started
@@ -839,8 +1028,12 @@ export const register: Register = on => {
 
   // A helper's own turn ends once, whether it answered, failed or was stopped.
   on('turn.complete', ($, e, next) => {
-    if (e.agentId !== undefined) {
-      dropHelper($, e.agentId)
+    const helper = e.agentId
+
+    if (helper !== undefined) {
+      dropHelper($, helper)
+      const hasFailed = e.isAborted || e.reason !== 'answer'
+      void changeCrew($, (before, now) => amend(before, helper, member => finish(member, hasFailed, now)))
 
       return next(e)
     }
@@ -886,6 +1079,11 @@ export const register: Register = on => {
     helperBeat?.cancel()
     helperBeat = undefined
     isHelperLineStale = false
+    enlisted.clear()
+    upcoming = []
+    stopCrewClock()
+    void changeCrew($, () => NO_CREW)
+    void update($, demoCrew, () => null).catch(() => undefined)
     paint($, 'idle', '')
 
     return next(e)
@@ -895,6 +1093,13 @@ export const register: Register = on => {
   // crab then keeps at it rather than resting, until the next turn begins.
   on('classic.Stop', ($, e, next) => {
     lingering = e.background_tasks ?? []
+
+    for (const task of lingering) {
+      if (task.type === 'workflow' && task.name !== undefined && task.name !== '') {
+        heardWorkflow($, task.name)
+      }
+    }
+
     void pruneHelpers($)
 
     if (!isWorking && rest === undefined) {
@@ -920,6 +1125,34 @@ export const register: Register = on => {
     // VS Code draws the same tree as the desktop: it has every element it uses.
     if (e.surface === 'desktop' || e.surface === 'vscode') {
       return desktopTree($.ui.resolve(e), shown, gauged, detailed)
+    }
+
+    return next(e)
+  })
+
+  // The demo's sample crew stands in for the real one while it plays.
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const shown = (await read($, demoCrew)) ?? (await read($, crew))
+
+    return crewTree($.ui.resolve(e), shown, await read($, crewView), await read($, frame))
+  })
+
+  // A card's steps unfold and fold again, and so does a group.
+  on('ui.press', { plugin: 'crab-cam' }, async ($, e, next) => {
+    const [steps, group] = [stepsKey(''), groupKey('')]
+
+    if (e.element.startsWith(steps)) {
+      const id = e.element.slice(steps.length)
+      await update($, crewView, view => ({ ...view, open: toggled(view.open, id) }))
+
+      return { element: e.element }
+    }
+
+    if (e.element.startsWith(group)) {
+      const key = e.element.slice(group.length)
+      await update($, crewView, view => ({ ...view, folded: toggled(view.folded, key) }))
+
+      return { element: e.element }
     }
 
     return next(e)

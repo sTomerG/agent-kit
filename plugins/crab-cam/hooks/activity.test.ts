@@ -173,10 +173,10 @@ test('a design skill, a design tool or the start of an artifact takes up design 
 
 test('helpers at work are counted by what they are doing, the most common first', () => {
   expect(helpersLine([])).toBe('')
-  expect(helpersLine([{ activity: 'reading' }])).toBe('1 helper: reading')
+  expect(helpersLine([{ activity: 'reading' }])).toBe('crew of 1: reading')
   expect(helpersLine([{ activity: 'testing', about: 'Review the diff' }])).toBe('Review the diff: running tests')
   expect(helpersLine([{ activity: 'thinking' }, { activity: 'terminal' }, { activity: 'terminal', about: 'Build' }])).toBe(
-    '3 helpers: 2 running commands, 1 thinking',
+    'crew of 3: 2 running commands, 1 thinking',
   )
 })
 

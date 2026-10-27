@@ -1,9 +1,12 @@
 // Writes the README's animations with the mod's own drawings, as the desktop
 // app draws them: assets/demo-scenes.svg loops through a few scenes,
-// assets/demo-meter.svg fills the meter, and assets/demo-meter-details.svg does
-// the same with the readings beside it (`/crab-cam details`). Run: npx tsx scripts/make-demo.mts
+// assets/demo-meter.svg fills the meter, assets/demo-meter-details.svg does
+// the same with the readings beside it (`/crab-cam details`), and
+// assets/demo-pane.svg shows the Crab crew pane at work on the demo's sample
+// crew. Run: npx tsx scripts/make-demo.mts
 import { mkdirSync, writeFileSync } from 'node:fs'
 
+import { chipsOf, colourOf, elapsedOf, groupsOf, sampleCrew, sceneLine, sceneOf, titleOf } from '../hooks/crew'
 import { meterLines, meterSvg, meterWidth } from '../hooks/meter'
 import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg } from '../hooks/scenes'
 
@@ -112,7 +115,89 @@ function meterDemo(detailed: boolean): string {
     : band(246, 'crab-cam meter: the shell fills with the context window, the pearls with the rate limits', steps.join(''))
 }
 
+// The pane's cards, each with its drawing a little larger than the band's.
+const CARD_SCALE = 1.1
+const CARD_HEIGHT = SCENE_HEIGHT * CARD_SCALE + 28
+const HEADING = 34
+const PANE_WIDTH = 600
+
+// A card's chip: white on the helper's colour, as the pane draws it.
+function chip(x: number, y: number, text: string, colour: string): { svg: string; width: number } {
+  const width = text.length * 6.6 + 14
+
+  return {
+    svg:
+      `<rect x="${x}" y="${y - 12}" width="${width}" height="17" rx="8.5" fill="${colour}"/>` +
+      `<text x="${x + width / 2}" y="${y}" font-size="11" font-weight="600" fill="#FFFFFF" text-anchor="middle">${escape(text)}</text>`,
+    width,
+  }
+}
+
+// The Crab crew pane as the demo fills it: the sample crew step by step, its
+// subagents and its workflow's agents each under their heading.
+function paneDemo(): string {
+  const steps = 10
+  let height = 0
+  const frames = Array.from({ length: steps }, (_, index) => {
+    const crew = sampleCrew(index, 0, index * 3000 + 4000)
+    let y = PAD
+    let inside = ''
+
+    for (const group of groupsOf(crew)) {
+      inside += `<text x="${PAD}" y="${y + 20}" font-size="14" font-weight="600" fill="${TEXT}">▾ ${escape(group.heading)} · ${group.running} of ${group.members.length} running</text>`
+      y += HEADING
+
+      for (const member of group.members) {
+        const colour = colourOf(member)
+        const activity = sceneOf(member)
+        const textX = PAD + 14 + (CRAB_WIDTH + PROP_WIDTH) * CARD_SCALE + 14
+        const meta = [member.type, elapsedOf(member, crew.now)].filter(part => part !== null).join(' · ')
+        let chipX = textX + meta.length * 7 + 10
+        const chips = chipsOf(member).map(text => {
+          const drawn = chip(chipX, y + 46, text, colour)
+          chipX += drawn.width + 6
+
+          return drawn.svg
+        })
+        const count = member.steps.length
+        const drawing = (svg: string, x: number, width: number) =>
+          svg
+            .replace(/^<svg /, `<svg x="${x}" y="${y + 6}" `)
+            .replace(/ width="[\d.]+" height="[\d.]+"/, ` width="${width}" height="${SCENE_HEIGHT * CARD_SCALE}"`)
+
+        inside +=
+          `<rect x="${PAD}" y="${y}" width="${PANE_WIDTH - PAD * 2}" height="${CARD_HEIGHT}" rx="10" fill="none" ` +
+          `stroke="${member.phase === 'working' ? colour : '#5F5E5A'}" stroke-width="1.5"/>` +
+          drawing(crabSvg(activity, colour), PAD + 14, CRAB_WIDTH * CARD_SCALE) +
+          drawing(propSvg(activity), PAD + 14 + CRAB_WIDTH * CARD_SCALE, PROP_WIDTH * CARD_SCALE) +
+          `<text x="${textX}" y="${y + 24}" font-size="14" font-weight="600" fill="${TEXT}">${escape(titleOf(member, crew.members))}</text>` +
+          `<text x="${textX}" y="${y + 46}" font-size="12" fill="${DIM}">${escape(meta)}</text>` +
+          chips.join('') +
+          `<text x="${textX}" y="${y + 66}" font-size="12" fill="${TEXT}" font-family="${MONO}">${escape(sceneLine(member))}</text>` +
+          `<text x="${textX}" y="${y + 84}" font-size="11" fill="${DIM}">▸ ${count === 1 ? '1 step' : `${count} steps`}</text>`
+        y += CARD_HEIGHT + 10
+      }
+
+      y += 8
+    }
+
+    height = Math.max(height, y + PAD - 18)
+
+    return step(index, steps, 2.5, inside)
+  })
+
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PANE_WIDTH} ${height}" width="${PANE_WIDTH}" height="${height}" ` +
+    `font-family="${SANS}" role="img" aria-label="The Crab crew pane: a card for each helper, with its own crab acting out its work">` +
+    `<rect width="${PANE_WIDTH}" height="${height}" rx="14" fill="#262624"/>` +
+    `<rect x="0.5" y="0.5" width="${PANE_WIDTH - 1}" height="${height - 1}" rx="13.5" fill="none" stroke="#3D3D3A"/>` +
+    frames.join('') +
+    `</svg>\n`
+  )
+}
+
 mkdirSync(OUT, { recursive: true })
 writeFileSync(`${OUT}/demo-scenes.svg`, scenesDemo())
 writeFileSync(`${OUT}/demo-meter.svg`, meterDemo(false))
 writeFileSync(`${OUT}/demo-meter-details.svg`, meterDemo(true))
+writeFileSync(`${OUT}/demo-pane.svg`, paneDemo())

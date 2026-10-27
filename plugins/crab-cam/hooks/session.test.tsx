@@ -74,7 +74,7 @@ test('a long call keeps the crab once a short one beside it returns', async ($, 
   await clock.advance(0)
   await $.tool.call({ tool: 'Read', tool_use_id: 'r', file_path: '/repo/notes.md' })
   await clock.advance(3000)
-  expect(await says($, /putting helpers to work/)).toBe(true)
+  expect(await says($, /putting the crew to work/)).toBe(true)
 
   finish()
   await helper
@@ -227,7 +227,7 @@ test('commands shows a command as typed, and once more describes it again', asyn
   expect(await says($, /Show the last three commits/)).toBe(true)
 })
 
-test('helpers at work show as how many there are and what they are doing', async ($, on) => {
+test('the crew at work shows as how many there are and what they are doing', async ($, on) => {
   const clock = session(on)
   let finish = (): void => undefined
   on('tool.call', { tool: 'Agent' }, () => new Promise(resolve => (finish = () => resolve({ result: 'ok' }))))
@@ -243,13 +243,13 @@ test('helpers at work show as how many there are and what they are doing', async
   await $.tool.call({ tool: 'Read', tool_use_id: 'r', file_path: '/repo/a.ts', agentId: 'h1' })
   await $.tool.call({ tool: 'Bash', tool_use_id: 'b', command: 'npm test', agentId: 'h2' })
   await clock.advance(1500)
-  expect(await says($, /putting helpers to work/)).toBe(true)
-  expect(await says($, /^2 helpers: 1 reading, 1 running tests$/)).toBe(true)
+  expect(await says($, /putting the crew to work/)).toBe(true)
+  expect(await says($, /^crew of 2: 1 reading, 1 running tests$/)).toBe(true)
 
   await $.tool.call({ tool: 'SubagentHandback', tool_use_id: 's', agentId: 'h1' })
   await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 'h1', reason: 'answer', agentId: 'h1' })
   await clock.advance(1500)
-  expect(await says($, /^1 helper: running tests$/)).toBe(true)
+  expect(await says($, /^crew of 1: running tests$/)).toBe(true)
 
   finish()
   await helper
@@ -269,7 +269,7 @@ test('a helper that outlives its turn keeps the crab at it until it is through',
   })
   await $.turn.complete({ answer: 'Started.', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
   await clock.advance(9000)
-  expect(await says($, /^1 helper: searching$/)).toBe(true)
+  expect(await says($, /^crew of 1: searching$/)).toBe(true)
 
   await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 'h1', reason: 'aborted', agentId: 'h1' })
   await clock.advance(1500)

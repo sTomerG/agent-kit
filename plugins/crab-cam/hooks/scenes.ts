@@ -81,7 +81,7 @@ function eye(x: number, look: Look): string {
 }
 
 // The crab is 48 by 29 before scaling: body, two arms, two eyes, four legs.
-function crab(x: number, y: number, pose: Pose, scale = 1, delay = 0): string {
+function crab(x: number, y: number, pose: Pose, scale = 1, delay = 0, body = ORANGE): string {
   const { look = 'ahead', arms = 'still', bob = 1.6, isShaking = false, wear = '' } = pose
   const motion = isShaking ? slide('0 0;-1.6 0;1.6 0;0 0', 0.28) : slide('0 0;0 -1.6;0 0', bob, `begin="${delay}s"`)
   const legs = [9, 16, 28, 35].map(legX => `<rect x="${legX}" y="22" width="4" height="7"/>`).join('')
@@ -90,7 +90,7 @@ function crab(x: number, y: number, pose: Pose, scale = 1, delay = 0): string {
     `<g transform="translate(${x} ${y}) scale(${scale})">` +
     `<ellipse cx="24" cy="30" rx="19" ry="1.8" fill="#000" opacity="0.14"/>` +
     `<g>${motion}` +
-    `<g fill="${ORANGE}">` +
+    `<g fill="${body}">` +
     `<rect x="6" y="0" width="36" height="22"/>` +
     `<rect x="0" y="${ARMS[arms].y}" width="6" height="7">${ARMS[arms].left}</rect>` +
     `<rect x="42" y="${ARMS[arms].y}" width="6" height="7">${ARMS[arms].right}</rect>` +
@@ -506,8 +506,9 @@ const frame = (x: number, width: number, inner: string) =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x} 0 ${width} ${SCENE_HEIGHT}" ` +
   `width="${width}" height="${SCENE_HEIGHT}" shape-rendering="geometricPrecision">${inner}</svg>`
 
-export function crabSvg(activity: Activity): string {
-  return frame(0, CRAB_WIDTH, crab(CRAB_X, CRAB_Y, SCENES[activity]().pose))
+// The crab of a scene, in Claude's orange or, for one of the crew, its own.
+export function crabSvg(activity: Activity, body = ORANGE): string {
+  return frame(0, CRAB_WIDTH, crab(CRAB_X, CRAB_Y, SCENES[activity]().pose, 1, 0, body))
 }
 
 export function propSvg(activity: Activity): string {
