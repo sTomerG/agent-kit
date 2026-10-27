@@ -1,8 +1,8 @@
-import type { Elements } from 'claude-code'
+import type { Elements, RenderSurface } from 'claude-code'
 
 import type { Crew, CrewMember, CrewView } from '../types'
 import type { CrewGroupView } from './crew'
-import { colourOf, detailsOf, groupsOf, sceneLine, sceneOf, titleOf } from './crew'
+import { colourOf, detailsOf, groupsOf, sceneLine, sceneOf, sceneOfMember, titleOf, usageOf } from './crew'
 import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg, resumed, sceneRows } from './scenes'
 
 export const PANE = 'crab-crew'
@@ -13,7 +13,17 @@ export const PANE_TITLE = 'Crab crew'
 const CARD_SCALE = 0.75
 const CARD_LIFT = 10
 
+// A drawn card is calm: a light fill and a faint edge, the helper's colour in
+// its crab alone, and its model and tokens on pills a shade darker. Theme
+// colours, so light and dark themes each get their own.
+const CARD_FILL = 'userMessageBackgroundHover'
+const CARD_EDGE = 'subtle'
+const PILL_FILL = 'userMessageBackground'
+
 type Table = Elements['terminal'] | Elements['desktop'] | Elements['vscode'] | Elements['mobile']
+
+// The surfaces that draw vector drawings and fills; the terminal draws glyphs.
+const isDrawn = (surface: RenderSurface): boolean => surface !== 'terminal'
 
 // The keys of the pane's buttons, which the ui.press hooks go by.
 export const stepsKey = (id: string) => `steps-${id}`
@@ -45,12 +55,12 @@ export function crabRow(table: Elements['terminal'], row: string, index: number,
 // pane's drawings afresh on every redraw, which would start them over each
 // second; they are drawn as far in as they have been running instead: the crab
 // since its helper began, the prop since its scene did.
-function crabOf(table: Table, member: CrewMember, tick: number, now: number) {
+function crabOf(table: Table, surface: RenderSurface, member: CrewMember, tick: number, now: number) {
   const { Box, Text } = table
   const activity = sceneOf(member)
   const colour = colourOf(member)
 
-  if ('Svg' in table) {
+  if (isDrawn(surface) && 'Svg' in table) {
     const { Svg } = table
     const height = SCENE_HEIGHT * CARD_SCALE
 
@@ -74,12 +84,14 @@ function crabOf(table: Table, member: CrewMember, tick: number, now: number) {
     )
   }
 
+  // A terminal's table, whatever its type says beside it.
+  const glyphs = table as Elements['terminal']
   const rows = sceneRows(activity, tick)
 
   return (
     <Box flexDirection="row" gap={1} flexShrink={0}>
       <Box flexDirection="column" flexShrink={0}>
-        {rows.crab.map((row, index) => crabRow(table, row, index, colour))}
+        {rows.crab.map((row, index) => crabRow(glyphs, row, index, colour))}
       </Box>
       <Box flexDirection="column" flexShrink={0}>
         {rows.prop.map(row => (
@@ -90,34 +102,63 @@ function crabOf(table: Table, member: CrewMember, tick: number, now: number) {
   )
 }
 
-function card(table: Table, member: CrewMember, crew: Crew, view: CrewView, tick: number, now: number) {
+function card(table: Table, surface: RenderSurface, member: CrewMember, crew: Crew, view: CrewView, tick: number, now: number) {
   const { Box, Button, Text } = table
-  const colour = colourOf(member)
+  const isFilled = isDrawn(surface)
+  const scene = sceneOfMember(member)
   const isOpen = view.open.includes(member.id)
   const count = member.steps.length
+  const usage = usageOf(member)
+  // The terminal has no fills to draw pills with: there the model and tokens
+  // join the details, and the edge keeps the helper's colour while it works.
+  const details = isFilled ? detailsOf(member, crew.now) : [detailsOf(member, crew.now), ...usage].join(' · ')
+  const edge = isFilled ? CARD_EDGE : member.phase === 'working' ? colourOf(member) : 'gray'
 
   return (
     <Box
       key={`card-${member.id}`}
       flexDirection="column"
       borderStyle="round"
-      borderColor={member.phase === 'working' ? colour : 'gray'}
+      borderColor={edge}
+      backgroundColor={isFilled ? CARD_FILL : undefined}
       paddingX={1}
       width="100%"
     >
-      <Box flexDirection="row" gap={2} width="100%">
-        {crabOf(table, member, tick, now)}
+      <Box flexDirection="row" alignItems="center" gap={2} width="100%">
+        {crabOf(table, surface, member, tick, now)}
         <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
           <Text bold wrap="truncate-end">
             {titleOf(member, crew.members)}
           </Text>
           <Text dimColor wrap="truncate-end">
-            {detailsOf(member, crew.now)}
+            {details}
           </Text>
-          <Text wrap="truncate-end">{sceneLine(member)}</Text>
+          <Box flexDirection="row" gap={1} width="100%">
+            <Box flexShrink={0}>
+              <Text>{scene.verb}</Text>
+            </Box>
+            {scene.subject !== '' && (
+              <Box flexShrink={1} minWidth={0}>
+                <Text dimColor wrap="truncate-end">
+                  {`· ${scene.subject}`}
+                </Text>
+              </Box>
+            )}
+          </Box>
+          {isFilled && usage.length > 0 && (
+            <Box flexDirection="row" gap={1}>
+              {usage.map(part => (
+                <Box key={`pill-${member.id}-${part}`} backgroundColor={PILL_FILL} paddingX={1} flexShrink={0}>
+                  <Text dimColor backgroundColor={PILL_FILL}>
+                    {part}
+                  </Text>
+                </Box>
+              ))}
+            </Box>
+          )}
           {count > 0 && (
             <Button key={stepsKey(member.id)} plain dimColor onPress={() => undefined}>
-              {`${isOpen ? '▾' : '▸'} ${count === 1 ? '1 step' : `${count} steps`}`}
+              {`${isOpen ? '⌄' : '›'} Steps (${count})`}
             </Button>
           )}
         </Box>
@@ -125,26 +166,30 @@ function card(table: Table, member: CrewMember, crew: Crew, view: CrewView, tick
       {isOpen &&
         member.steps.map(line => (
           <Text dimColor wrap="truncate-end">
-            {`  ${line}`}
+            {`› ${line}`}
           </Text>
         ))}
     </Box>
   )
 }
 
-function group(table: Table, shown: CrewGroupView, crew: Crew, view: CrewView, tick: number, now: number) {
-  const { Box, Button } = table
+// A group's heading: its fold and name on the left, how many of it are still
+// at work on the right.
+function group(table: Table, surface: RenderSurface, shown: CrewGroupView, crew: Crew, view: CrewView, tick: number, now: number) {
+  const { Box, Button, Text } = table
   const isFolded = view.folded.includes(shown.key)
-  const label = `${isFolded ? '▸' : '▾'} ${shown.heading} · ${shown.running} of ${shown.members.length} running`
 
   return (
     <Box key={`group-box-${shown.key}`} flexDirection="column" width="100%">
-      <Button key={groupKey(shown.key)} plain onPress={() => undefined}>
-        {label}
-      </Button>
+      <Box flexDirection="row" justifyContent="space-between" width="100%">
+        <Button key={groupKey(shown.key)} plain onPress={() => undefined}>
+          {`${isFolded ? '›' : '⌄'} ${shown.heading}`}
+        </Button>
+        <Text dimColor>{`${shown.running} of ${shown.members.length} running`}</Text>
+      </Box>
       {!isFolded && (
         <Box flexDirection="column" gap={1} width="100%">
-          {shown.members.map(member => card(table, member, crew, view, tick, now))}
+          {shown.members.map(member => card(table, surface, member, crew, view, tick, now))}
         </Box>
       )}
     </Box>
@@ -153,7 +198,7 @@ function group(table: Table, shown: CrewGroupView, crew: Crew, view: CrewView, t
 
 // The pane: the crew by group, or a word on what will show here, drawn at the
 // time given.
-export function crewTree(table: Table, crew: Crew, view: CrewView, tick: number, now: number) {
+export function crewTree(table: Table, surface: RenderSurface, crew: Crew, view: CrewView, tick: number, now: number) {
   const { Box, Text } = table
   const groups = groupsOf(crew)
 
@@ -167,7 +212,7 @@ export function crewTree(table: Table, crew: Crew, view: CrewView, tick: number,
 
   return (
     <Box flexDirection="column" gap={1} width="100%">
-      {groups.map(shown => group(table, shown, crew, view, tick, now))}
+      {groups.map(shown => group(table, surface, shown, crew, view, tick, now))}
     </Box>
   )
 }

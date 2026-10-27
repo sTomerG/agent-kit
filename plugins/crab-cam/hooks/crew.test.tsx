@@ -10,6 +10,7 @@ import {
   elapsed,
   finish,
   join,
+  modelName,
   sampleCrew,
   tokensText,
   workflowNameOf,
@@ -142,6 +143,10 @@ test('times, tokens and workflow names read as the pane shows them', () => {
   expect(workflowNameOf({ name: 'audit' })).toBe('audit')
   expect(workflowNameOf({ script: "export const meta = {\n  name: 'review-changes',\n  description: 'x' }" })).toBe('review-changes')
   expect(workflowNameOf({ script: 'agent("x")' })).toBeUndefined()
+  expect(modelName('claude-haiku-5-5')).toBe('Haiku 5.5')
+  expect(modelName('claude-opus-4-1-20250805')).toBe('Opus 4.1')
+  expect(modelName('claude-sonnet-5[1m]')).toBe('Sonnet 5')
+  expect(modelName('gpt-5')).toBe('gpt-5')
 })
 
 test("the demo's crew moves on one helper at a time at most, and two of them finish", () => {
@@ -181,23 +186,32 @@ test('a subagent gets a card with its task, and its type, time, model and tokens
   for (const surface of ['desktop', 'terminal'] as const) {
     const texts = await paneTexts($, surface)
     expect(texts).toContain('Review the diff')
-    expect(texts).toContain('Explore · 0:05 · haiku-5-5 · 11.2k tokens')
-    expect(texts).toContain('reading · a.ts')
-    expect(texts).toContain('▾ Subagents · 1 of 1 running')
-    expect(texts).toContain('▸ 1 step')
+    expect(texts).toContain('Reading')
+    expect(texts).toContain('· a.ts')
+    expect(texts).toContain('⌄ Subagents')
+    expect(texts).toContain('1 of 1 running')
+    expect(texts).toContain('› Steps (1)')
   }
+
+  // The desktop puts the model and tokens on pills of their own; the terminal
+  // has no fills, and adds them to the details.
+  const drawn = await paneTexts($)
+  expect(drawn).toContain('Explore · 0:05')
+  expect(drawn).toContain('Haiku 5.5')
+  expect(drawn).toContain('11.2k tokens')
+  expect(await paneTexts($, 'terminal')).toContain('Explore · 0:05 · Haiku 5.5 · 11.2k tokens')
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await ui.press({ key: 'steps-h1' })
   await ui.unmount()
-  expect(await paneTexts($)).toContain('  reading · a.ts')
+  expect(await paneTexts($)).toContain('› Read · a.ts')
 
   await helperEnds($, 'h1')
   await clock.advance(5000)
   const after = await paneTexts($)
-  expect(after).toContain('done')
-  expect(after).toContain('Explore · 0:05 · haiku-5-5 · 11.2k tokens')
-  expect(after).toContain('▾ Subagents · 0 of 1 running')
+  expect(after).toContain('Done')
+  expect(after).toContain('Explore · 0:05')
+  expect(after).toContain('0 of 1 running')
 })
 
 test('the pane opens by itself as a round starts, until crew auto turns that off', async ($, on) => {
@@ -234,7 +248,8 @@ test("a workflow's agents share a group headed by its name, each by type and num
   await clock.advance(0)
 
   const texts = await paneTexts($, 'terminal')
-  expect(texts).toContain('▾ review-changes · 2 of 2 running')
+  expect(texts).toContain('⌄ Workflow · review-changes')
+  expect(texts).toContain('2 of 2 running')
   expect(texts).toContain('Explore 1')
   expect(texts).toContain('Explore 2')
   // Their titles name the type already.
@@ -245,7 +260,7 @@ test("a workflow's agents share a group headed by its name, each by type and num
   await ui.press({ key: 'group-workflow' })
   await ui.unmount()
   const folded = await paneTexts($, 'terminal')
-  expect(folded).toContain('▸ review-changes · 2 of 2 running')
+  expect(folded).toContain('› Workflow · review-changes')
   expect(folded).not.toContain('Explore 1')
 })
 
@@ -267,7 +282,8 @@ test('the demo fills the pane with a sample crew, and closes the pane after', as
   await command($, 'demo')
   const texts = await paneTexts($)
   expect(texts).toContain('Review the diff')
-  expect(texts).toContain('▾ review-changes · 3 of 3 running')
+  expect(texts).toContain('⌄ Workflow · review-changes')
+  expect(texts).toContain('3 of 3 running')
 
   await clock.advance(120_000)
   expect(closes).toEqual(['crab-crew'])

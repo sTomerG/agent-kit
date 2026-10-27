@@ -916,8 +916,10 @@ export const register: Register = on => {
       noteHelper($, helper, isOwnWork ? { activity } : {})
       enlist($, helper)
 
+      // A card names what a call was about as the call has it: the command a
+      // step ran rather than what it was for, so it reads as done.
       if (isOwnWork) {
-        const detail = detailOf(e.tool, args, await read($, isRaw))
+        const detail = detailOf(e.tool, args, true)
         void changeCrew($, (before, now) => amend(before, helper, member => step(member, activity, detail, now)))
       }
 
@@ -1162,7 +1164,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const shown = (await read($, demoCrew)) ?? (await read($, crew))
 
-    return crewTree($.ui.resolve(e), shown, await read($, crewView), await read($, frame), await $.clock.now())
+    return crewTree($.ui.resolve(e), e.surface, shown, await read($, crewView), await read($, frame), await $.clock.now())
   })
 
   // A card's steps unfold and fold again, and so does a group.

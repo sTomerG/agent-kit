@@ -85,8 +85,9 @@ The pane opens by itself when a new round of helpers starts: the first helper af
 - **Groups**: subagents under one heading, a workflow's agents under another, named after the workflows running. Each heading says how many are still running and folds when you click it.
 - **Crab**: each helper has its own colour, starting with Claude's orange, and acts out its own scene. Past seven helpers in one round, the colours repeat. The terminal draws the crab in block glyphs, as the band does.
 - **Title**: the task a subagent was given. A workflow's agents are given no task, so they go by their type and a number, such as `Explore 2`.
-- **Details**: the agent's type, how long it has been at work, its model and tokens once there is a reading, and what it is doing now. A workflow's agent leaves the type out, as its title names it.
-- **Steps**: click the step count to unfold its last 50 steps, in the band's wording.
+- **Details**: the agent's type and how long it has been at work, then what it is doing now and what about, such as `Running tests · claude plugin test`. A workflow's agent leaves the type out, as its title names it.
+- **Model and tokens**: on two pills once there is a reading, such as `Haiku 5.5` and `3.8k tokens`. The terminal has no fills, so there they join the details.
+- **Steps**: click Steps to unfold its last 50 steps, such as `Read · register.tsx` or `Ran tests · claude plugin test`.
 - **When it ends**: the crab shows done or oops, and the card stays until the next round.
 
 The pane takes its ideas from helper-desk, a mod by Ben AI. No code of it is used.

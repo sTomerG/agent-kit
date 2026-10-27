@@ -6,7 +6,7 @@
 // crew. Run: npx tsx scripts/make-demo.mts
 import { mkdirSync, writeFileSync } from 'node:fs'
 
-import { SAMPLE_TURN_MS, colourOf, detailsOf, groupsOf, sampleCrew, sceneLine, sceneOf, titleOf } from '../hooks/crew'
+import { SAMPLE_TURN_MS, colourOf, detailsOf, groupsOf, sampleCrew, sceneOfMember, sceneOf, titleOf, usageOf } from '../hooks/crew'
 import { meterLines, meterSvg, meterWidth } from '../hooks/meter'
 import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg } from '../hooks/scenes'
 
@@ -115,11 +115,22 @@ function meterDemo(detailed: boolean): string {
     : band(246, 'crab-cam meter: the shell fills with the context window, the pearls with the rate limits', steps.join(''))
 }
 
-// The pane's cards, each with its drawing a little larger than the band's.
+// The pane's cards, each with its drawing a little larger than the band's,
+// and the calm colours a dark theme gives them: a fill a shade lighter than the
+// pane, a faint edge, and pills a shade lighter again.
 const CARD_SCALE = 1.1
-const CARD_HEIGHT = SCENE_HEIGHT * CARD_SCALE + 28
+const CARD_HEIGHT = 128
 const HEADING = 34
 const PANE_WIDTH = 600
+const CARD_FILL = '#30302E'
+const CARD_EDGE = '#4A4945'
+const PILL_FILL = '#3D3D3A'
+
+// A subject cut to what fits beside its statement on a card.
+const clipped = (text: string, room: number) => (text.length > room ? `${text.slice(0, room - 1)}…` : text)
+
+// About how wide a line of text is drawn, for the pills around it.
+const textWidth = (text: string, size: number) => text.length * size * 0.56
 
 // The Crab crew pane as the demo fills it: the sample crew turn by turn, one
 // helper moving on at a time, its subagents and its workflow's agents each
@@ -133,28 +144,44 @@ function paneDemo(): string {
     let inside = ''
 
     for (const group of groupsOf(crew)) {
-      inside += `<text x="${PAD}" y="${y + 20}" font-size="14" font-weight="600" fill="${TEXT}">▾ ${escape(group.heading)} · ${group.running} of ${group.members.length} running</text>`
+      inside +=
+        `<text x="${PAD}" y="${y + 20}" font-size="14" font-weight="600" fill="${TEXT}">⌄ ${escape(group.heading)}</text>` +
+        `<text x="${PANE_WIDTH - PAD}" y="${y + 20}" font-size="13" fill="${DIM}" text-anchor="end">${group.running} of ${group.members.length} running</text>`
       y += HEADING
 
       for (const member of group.members) {
         const colour = colourOf(member)
         const activity = sceneOf(member)
         const textX = PAD + 14 + (CRAB_WIDTH + PROP_WIDTH) * CARD_SCALE + 14
-        const count = member.steps.length
+        const drawingY = y + (CARD_HEIGHT - SCENE_HEIGHT * CARD_SCALE) / 2
         const drawing = (svg: string, x: number, width: number) =>
           svg
-            .replace(/^<svg /, `<svg x="${x}" y="${y + 6}" `)
+            .replace(/^<svg /, `<svg x="${x}" y="${drawingY}" `)
             .replace(/ width="[\d.]+" height="[\d.]+"/, ` width="${width}" height="${SCENE_HEIGHT * CARD_SCALE}"`)
+        const scene = sceneOfMember(member)
+        let pillX = textX
+        let pills = ''
+
+        for (const part of usageOf(member)) {
+          const width = textWidth(part, 11) + 14
+          pills +=
+            `<rect x="${pillX}" y="${y + 76}" width="${width}" height="18" rx="5" fill="${PILL_FILL}"/>` +
+            `<text x="${pillX + 7}" y="${y + 89}" font-size="11" fill="${DIM}">${escape(part)}</text>`
+          pillX += width + 6
+        }
 
         inside +=
-          `<rect x="${PAD}" y="${y}" width="${PANE_WIDTH - PAD * 2}" height="${CARD_HEIGHT}" rx="10" fill="none" ` +
-          `stroke="${member.phase === 'working' ? colour : '#5F5E5A'}" stroke-width="1.5"/>` +
+          `<rect x="${PAD}" y="${y}" width="${PANE_WIDTH - PAD * 2}" height="${CARD_HEIGHT}" rx="10" fill="${CARD_FILL}" ` +
+          `stroke="${CARD_EDGE}" stroke-width="1"/>` +
           drawing(crabSvg(activity, colour, 10), PAD + 14, CRAB_WIDTH * CARD_SCALE) +
           drawing(propSvg(activity), PAD + 14 + CRAB_WIDTH * CARD_SCALE, PROP_WIDTH * CARD_SCALE) +
           `<text x="${textX}" y="${y + 24}" font-size="14" font-weight="600" fill="${TEXT}">${escape(titleOf(member, crew.members))}</text>` +
-          `<text x="${textX}" y="${y + 46}" font-size="12" fill="${DIM}">${escape(detailsOf(member, crew.now))}</text>` +
-          `<text x="${textX}" y="${y + 66}" font-size="12" fill="${TEXT}" font-family="${MONO}">${escape(sceneLine(member))}</text>` +
-          `<text x="${textX}" y="${y + 84}" font-size="11" fill="${DIM}">▸ ${count === 1 ? '1 step' : `${count} steps`}</text>`
+          `<text x="${textX}" y="${y + 44}" font-size="12" fill="${DIM}">${escape(detailsOf(member, crew.now))}</text>` +
+          `<text x="${textX}" y="${y + 64}" font-size="12" fill="${TEXT}">${escape(scene.verb)}` +
+          (scene.subject === '' ? '' : ` <tspan fill="${DIM}">· ${escape(clipped(scene.subject, 44 - scene.verb.length))}</tspan>`) +
+          `</text>` +
+          pills +
+          `<text x="${textX}" y="${y + 114}" font-size="11" fill="${DIM}">› Steps (${member.steps.length})</text>`
         y += CARD_HEIGHT + 10
       }
 

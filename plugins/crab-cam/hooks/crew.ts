@@ -63,20 +63,59 @@ export function finish(member: CrewMember, hasFailed: boolean, now: number): Cre
   return member.phase === 'working' ? { ...member, phase: hasFailed ? 'failed' : 'done', endedAt: now, sceneAt: now } : member
 }
 
-// A step in the band's wording: what the helper did, and what it was about.
+// What a helper did, in the words of the band's scenes: the main statement
+// of a step, before what it was about.
+const DID: Record<Activity, string> = {
+  idle: 'Rested',
+  thinking: 'Thought',
+  reading: 'Read',
+  coding: 'Wrote code',
+  writing: 'Wrote text',
+  designing: 'Designed',
+  terminal: 'Ran a command',
+  searching: 'Searched',
+  web: 'Browsed',
+  delegating: 'Delegated',
+  talking: 'Replied',
+  asking: 'Asked',
+  planning: 'Planned',
+  tool: 'Used a tool',
+  done: 'Done',
+  permission: 'Waited for permission',
+  compacting: 'Tidied up',
+  error: 'Got stuck',
+  waiting: 'Waited',
+  testing: 'Ran tests',
+  git: 'Used git',
+  installing: 'Installed',
+  skill: 'Loaded a skill',
+  memory: 'Remembered',
+  sharing: 'Shared',
+}
+
+const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1)
+
+// A step as the card's list words it: what the helper did, then what about.
 export const stepLine = (activity: Activity, detail: string): string =>
-  detail === '' ? DOING[activity] : `${DOING[activity]} · ${detail}`
+  detail === '' ? DID[activity] : `${DID[activity]} · ${detail}`
 
 // The scene its crab acts out: its work, or done or oops once it is through.
 export const sceneOf = (member: CrewMember): Activity =>
   member.phase === 'done' ? 'done' : member.phase === 'failed' ? 'error' : member.activity
 
-// The line under its title: what it is doing, or how it ended.
-export function sceneLine(member: CrewMember): string {
-  if (member.phase === 'done') return 'done'
-  if (member.phase === 'failed') return 'stopped before it finished'
+// The line under its details: the main statement of what it is doing and
+// what about, or how it ended.
+export function sceneOfMember(member: CrewMember): { verb: string; subject: string } {
+  if (member.phase === 'done') return { verb: 'Done', subject: '' }
+  if (member.phase === 'failed') return { verb: 'Stopped before it finished', subject: '' }
 
-  return stepLine(member.activity, member.detail)
+  return { verb: capital(DOING[member.activity]), subject: member.detail }
+}
+
+export function sceneLine(member: CrewMember): string {
+  const { verb, subject } = sceneOfMember(member)
+
+  return subject === '' ? verb : `${verb} · ${subject}`
 }
 
 // A subagent goes by what it is for; a workflow's agents have nothing to say
@@ -96,7 +135,7 @@ export type CrewGroupView = { key: CrewGroup; heading: string; members: CrewMemb
 
 // The two groups, subagents and the workflow's agents, each in start order;
 // a group with no one in it is left out. Workflow agents cannot be told
-// apart by workflow, so they share one group headed by every name in play.
+// apart by workflow, so they share one group named after every one in play.
 export function groupsOf(crew: Crew): CrewGroupView[] {
   const groups: CrewGroupView[] = []
 
@@ -104,7 +143,8 @@ export function groupsOf(crew: Crew): CrewGroupView[] {
     const members = crew.members.filter(member => member.group === key)
 
     if (members.length > 0) {
-      const heading = key === 'subagent' ? 'Subagents' : crew.workflows.length > 0 ? crew.workflows.join(' + ') : 'Workflow'
+      const heading =
+        key === 'subagent' ? 'Subagents' : crew.workflows.length > 0 ? `Workflow · ${crew.workflows.join(' + ')}` : 'Workflow'
       groups.push({ key, heading, members, running: members.filter(member => member.phase === 'working').length })
     }
   }
@@ -131,22 +171,27 @@ export function tokensText(tokens: number): string {
   return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, '')}M tokens`
 }
 
-// A model by the part of its id that tells it apart: `claude-haiku-5-5` is
-// `haiku-5-5`.
-export const shortModel = (model: string): string => model.replace(/^claude-/, '')
+// A model as people name it: `claude-haiku-5-5` is Haiku 5.5, and a date or
+// a context size after the version is left off. An id of another shape stays
+// as it is, less the `claude-` in front.
+export function modelName(model: string): string {
+  const match = /^claude-([a-z]+)-(\d{1,2}(?:-\d{1,2})*)(?!\d)/.exec(model)
 
-// The line under a card's title: its type, how long it has been at work, and
-// its model and tokens once there is a reading. A workflow's agent is titled
-// by its type already, so the type is left out there.
+  return match === null ? model.replace(/^claude-/, '') : `${capital(match[1] ?? '')} ${(match[2] ?? '').replaceAll('-', '.')}`
+}
+
+// The line under a card's title: its type and how long it has been at work.
+// A workflow's agent is titled by its type already, so the type is left out
+// there.
 export function detailsOf(member: CrewMember, now: number): string {
-  return [
-    member.group === 'workflow' ? null : member.type,
-    elapsedOf(member, now),
-    member.model === null ? null : shortModel(member.model),
-    member.tokens === null ? null : tokensText(member.tokens),
-  ]
-    .filter(part => part !== null)
-    .join(' · ')
+  return [member.group === 'workflow' ? null : member.type, elapsedOf(member, now)].filter(part => part !== null).join(' · ')
+}
+
+// Its model and tokens, once there is a reading of them.
+export function usageOf(member: CrewMember): string[] {
+  return [member.model === null ? null : modelName(member.model), member.tokens === null ? null : tokensText(member.tokens)].filter(
+    part => part !== null,
+  )
 }
 
 // The name a Workflow call gives its workflow: its `name`, or the name in the
