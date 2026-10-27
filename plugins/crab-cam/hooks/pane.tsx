@@ -3,7 +3,7 @@ import type { Elements } from 'claude-code'
 import type { Crew, CrewMember, CrewView } from '../types'
 import type { CrewGroupView } from './crew'
 import { colourOf, detailsOf, groupsOf, sceneLine, sceneOf, titleOf } from './crew'
-import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg, sceneRows } from './scenes'
+import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg, resumed, sceneRows } from './scenes'
 
 export const PANE = 'crab-crew'
 export const PANE_TITLE = 'Crab crew'
@@ -41,8 +41,11 @@ export function crabRow(table: Elements['terminal'], row: string, index: number,
 
 // What the cards stand beside: a crab in the helper's colour acting out its
 // scene. The terminal has no vector drawing, so there it is the band's glyph
-// crab in that colour, its prop stepping with the tick.
-function crabOf(table: Table, member: CrewMember, tick: number) {
+// crab in that colour, its prop stepping with the tick. The desktop draws the
+// pane's drawings afresh on every redraw, which would start them over each
+// second; they are drawn as far in as they have been running instead: the crab
+// since its helper began, the prop since its scene did.
+function crabOf(table: Table, member: CrewMember, tick: number, now: number) {
   const { Box, Text } = table
   const activity = sceneOf(member)
   const colour = colourOf(member)
@@ -52,14 +55,21 @@ function crabOf(table: Table, member: CrewMember, tick: number) {
     const height = SCENE_HEIGHT * CARD_SCALE
 
     return (
-      <Box flexDirection="row" flexShrink={0}>
+      <Box key={`drawing-${member.id}`} flexDirection="row" flexShrink={0}>
         <Svg
-          source={crabSvg(activity, colour, CARD_LIFT)}
+          key={`crab-${member.id}`}
+          source={resumed(crabSvg(activity, colour, CARD_LIFT), (now - member.startedAt) / 1000)}
           alt={`A crab in ${colour}`}
           width={CRAB_WIDTH * CARD_SCALE}
           height={height}
         />
-        <Svg source={propSvg(activity)} alt={sceneLine(member)} width={PROP_WIDTH * CARD_SCALE} height={height} />
+        <Svg
+          key={`prop-${member.id}`}
+          source={resumed(propSvg(activity), (now - member.sceneAt) / 1000)}
+          alt={sceneLine(member)}
+          width={PROP_WIDTH * CARD_SCALE}
+          height={height}
+        />
       </Box>
     )
   }
@@ -80,7 +90,7 @@ function crabOf(table: Table, member: CrewMember, tick: number) {
   )
 }
 
-function card(table: Table, member: CrewMember, crew: Crew, view: CrewView, tick: number) {
+function card(table: Table, member: CrewMember, crew: Crew, view: CrewView, tick: number, now: number) {
   const { Box, Button, Text } = table
   const colour = colourOf(member)
   const isOpen = view.open.includes(member.id)
@@ -96,7 +106,7 @@ function card(table: Table, member: CrewMember, crew: Crew, view: CrewView, tick
       width="100%"
     >
       <Box flexDirection="row" gap={2} width="100%">
-        {crabOf(table, member, tick)}
+        {crabOf(table, member, tick, now)}
         <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
           <Text bold wrap="truncate-end">
             {titleOf(member, crew.members)}
@@ -122,7 +132,7 @@ function card(table: Table, member: CrewMember, crew: Crew, view: CrewView, tick
   )
 }
 
-function group(table: Table, shown: CrewGroupView, crew: Crew, view: CrewView, tick: number) {
+function group(table: Table, shown: CrewGroupView, crew: Crew, view: CrewView, tick: number, now: number) {
   const { Box, Button } = table
   const isFolded = view.folded.includes(shown.key)
   const label = `${isFolded ? '▸' : '▾'} ${shown.heading} · ${shown.running} of ${shown.members.length} running`
@@ -134,15 +144,16 @@ function group(table: Table, shown: CrewGroupView, crew: Crew, view: CrewView, t
       </Button>
       {!isFolded && (
         <Box flexDirection="column" gap={1} width="100%">
-          {shown.members.map(member => card(table, member, crew, view, tick))}
+          {shown.members.map(member => card(table, member, crew, view, tick, now))}
         </Box>
       )}
     </Box>
   )
 }
 
-// The pane: the crew by group, or a word on what will show here.
-export function crewTree(table: Table, crew: Crew, view: CrewView, tick: number) {
+// The pane: the crew by group, or a word on what will show here, drawn at the
+// time given.
+export function crewTree(table: Table, crew: Crew, view: CrewView, tick: number, now: number) {
   const { Box, Text } = table
   const groups = groupsOf(crew)
 
@@ -156,7 +167,7 @@ export function crewTree(table: Table, crew: Crew, view: CrewView, tick: number)
 
   return (
     <Box flexDirection="column" gap={1} width="100%">
-      {groups.map(shown => group(table, shown, crew, view, tick))}
+      {groups.map(shown => group(table, shown, crew, view, tick, now))}
     </Box>
   )
 }

@@ -30,6 +30,7 @@ export function join(crew: Crew, id: string, now: number, upcoming: readonly str
     type: null,
     seat: kept.length,
     startedAt: now,
+    sceneAt: now,
     endedAt: null,
     phase: 'working',
     activity: 'thinking',
@@ -48,12 +49,18 @@ export function amend(crew: Crew, id: string, change: (member: CrewMember) => Cr
 }
 
 // A call the helper made: the scene it is in now, and one more step.
-export function step(member: CrewMember, activity: Activity, detail: string): CrewMember {
-  return { ...member, activity, detail, steps: [...member.steps, stepLine(activity, detail)].slice(-MAX_STEPS) }
+export function step(member: CrewMember, activity: Activity, detail: string, now: number): CrewMember {
+  return {
+    ...member,
+    activity,
+    detail,
+    steps: [...member.steps, stepLine(activity, detail)].slice(-MAX_STEPS),
+    sceneAt: activity === member.activity ? member.sceneAt : now,
+  }
 }
 
 export function finish(member: CrewMember, hasFailed: boolean, now: number): CrewMember {
-  return member.phase === 'working' ? { ...member, phase: hasFailed ? 'failed' : 'done', endedAt: now } : member
+  return member.phase === 'working' ? { ...member, phase: hasFailed ? 'failed' : 'done', endedAt: now, sceneAt: now } : member
 }
 
 // A step in the band's wording: what the helper did, and what it was about.
@@ -171,23 +178,35 @@ const SAMPLE_WORK: readonly Work[] = [
   ['thinking', ''],
 ]
 
-const SAMPLES: readonly (Pick<CrewMember, 'group' | 'about' | 'type' | 'model'> & { tokens: number; endsAt?: number })[] = [
+// How long each turn of the demo's crew lasts: on each, one of them moves on.
+export const SAMPLE_TURN_MS = 3000
+
+// The demo's helpers; one with a last step is through once it is past it.
+const SAMPLES: readonly (Pick<CrewMember, 'group' | 'about' | 'type' | 'model'> & { tokens: number; lastStep?: number })[] = [
   { group: 'subagent', about: 'Review the diff', type: 'general-purpose', model: 'claude-sonnet-5-5', tokens: 18400 },
-  { group: 'subagent', about: 'Find the flaky test', type: 'Explore', model: 'claude-haiku-5-5', tokens: 9200, endsAt: 5 },
+  { group: 'subagent', about: 'Find the flaky test', type: 'Explore', model: 'claude-haiku-5-5', tokens: 9200, lastStep: 2 },
   { group: 'workflow', about: null, type: 'Explore', model: 'claude-haiku-5-5', tokens: 12100 },
-  { group: 'workflow', about: null, type: 'Explore', model: 'claude-haiku-5-5', tokens: 7600, endsAt: 8 },
+  { group: 'workflow', about: null, type: 'Explore', model: 'claude-haiku-5-5', tokens: 7600, lastStep: 3 },
   { group: 'workflow', about: null, type: 'general-purpose', model: 'claude-opus-5-5', tokens: 31800 },
 ]
 
-// The demo's crew as it stands after so many of its steps: two subagents and
-// a workflow's three agents, each on its own stretch of the sample work, two
-// of them through before the end.
-export function sampleCrew(index: number, started: number, now: number): Crew {
+// The demo's crew as it stands so long after it started: two subagents and a
+// workflow's three agents, each on its own stretch of the sample work, two of
+// them through before the end. They take turns to move on, one every few
+// seconds, so the cards do not all change at once.
+export function sampleCrew(started: number, now: number): Crew {
+  const turns = Math.floor((now - started) / SAMPLE_TURN_MS)
   const members = SAMPLES.map((sample, seat): CrewMember => {
-    const done = Math.min(index, sample.endsAt ?? index) + 1
+    // The turns that were this helper's: the seat's first, then every round.
+    const moves = turns > seat ? Math.floor((turns - 1 - seat) / SAMPLES.length) + 1 : 0
+    const last = sample.lastStep ?? Infinity
+    const isThrough = moves + 1 > last
+    const done = Math.min(moves + 1, last)
     const work = Array.from({ length: done }, (_, at) => SAMPLE_WORK[(at + seat * 3) % SAMPLE_WORK.length] ?? PAUSE)
     const [activity, detail] = work[work.length - 1] ?? PAUSE
-    const isThrough = sample.endsAt !== undefined && index >= sample.endsAt
+    // The turn of its k-th move, the last of which puts it through.
+    const turnOf = (move: number) => started + (seat + 1 + (move - 1) * SAMPLES.length) * SAMPLE_TURN_MS
+    const startedAt = started - seat * 4000
 
     return {
       id: `sample-${seat}`,
@@ -195,8 +214,9 @@ export function sampleCrew(index: number, started: number, now: number): Crew {
       about: sample.about,
       type: sample.type,
       seat,
-      startedAt: started - seat * 4000,
-      endedAt: isThrough ? started + (sample.endsAt ?? 0) * 3000 : null,
+      startedAt,
+      endedAt: isThrough ? turnOf(last) : null,
+      sceneAt: isThrough ? turnOf(last) : moves === 0 ? startedAt : turnOf(moves),
       phase: isThrough ? 'done' : 'working',
       activity,
       detail,

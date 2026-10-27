@@ -48,6 +48,9 @@ export type CrewMember = {
   seat: number
   startedAt: number
   endedAt: number | null
+  // When the scene its crab acts out now began: a new one starts from its
+  // beginning, as the band's do.
+  sceneAt: number
   phase: CrewPhase
   activity: Activity
   detail: string

@@ -516,6 +516,21 @@ export function propSvg(activity: Activity): string {
   return frame(SPLIT, PROP_WIDTH, SCENES[activity]().prop)
 }
 
+// A drawing as it stands so many seconds in: every animation's start moved
+// that far back. A surface that draws a drawing afresh starts its animations
+// over; drawn this way it goes on where it was, so the restart does not show.
+export function resumed(svg: string, seconds: number): string {
+  const back = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds * 1000) / 1000) : 0
+
+  return svg.replace(/<(animate|animateTransform|animateMotion)\b([^>]*?)(\/?)>/g, (_, tag: string, attributes: string, end: string) => {
+    const begin = /\sbegin="(-?[\d.]+)s"/.exec(attributes)
+    const at = begin === null ? 0 : Number(begin[1])
+    const rest = begin === null ? attributes : attributes.replace(begin[0], '')
+
+    return `<${tag}${rest} begin="${Math.round((at - back) * 1000) / 1000}s"${end}>`
+  })
+}
+
 // Crab and prop as one drawing, for a page that shows a scene on its own.
 export function drawingSvg(drawing: Drawing): string {
   return frame(0, SCENE_WIDTH, crab(CRAB_X, CRAB_Y, drawing.pose) + drawing.prop)

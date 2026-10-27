@@ -170,6 +170,9 @@ let pending: Promise<unknown> = Promise.resolve()
 let rest: Timer | undefined
 let ticker: Timer | undefined
 let demo: Timer | undefined
+// Moves the demo's sample crew on while the demo plays, from when it began.
+let demoCrewClock: Timer | undefined
+let demoStarted: number | undefined
 let muse: Timer | undefined
 // The tool a permission dialog is open for, while one is.
 let asking: string | undefined
@@ -212,6 +215,21 @@ function takeQueued(): Painted | undefined {
   return last
 }
 
+// Brings the pane's time up to now: the demo's sample crew, or the real one
+// when it has anyone. The pane's drawings are as far along as its last redraw
+// says, and a redraw of the band draws the pane again from that last one: a
+// pane last drawn a second ago would then show every crab a second back.
+async function freshenPane($: EngineInterface): Promise<void> {
+  const started = demoStarted
+
+  if (started !== undefined) {
+    const now = await $.clock.now()
+    await update($, demoCrew, () => sampleCrew(started, now))
+  } else if ((await read($, crew)).members.length > 0) {
+    await changeCrew($, (before, now) => ({ ...before, now }))
+  }
+}
+
 // Draws a scene, or queues it while the one on screen is still held. Writes
 // run one after another and off the caller's path, so a stream of chunks
 // never waits on the crab and two changes land in the order made.
@@ -231,7 +249,11 @@ function paint($: EngineInterface, activity: Activity, detail: string, hold = 0)
 
   if (current?.activity !== activity || current.detail !== detail) {
     const next: Scene = { activity, detail }
-    pending = pending.then(() => update($, scene, () => next)).catch(() => undefined)
+    // The pane first, so the band's redraw finds it current.
+    pending = pending
+      .then(() => freshenPane($))
+      .then(() => update($, scene, () => next))
+      .catch(() => undefined)
   }
 
   current = wanted
@@ -527,14 +549,19 @@ function stopTimers(): void {
 // and closes again after if the demo opened it.
 async function playDemo($: EngineInterface): Promise<void> {
   demo?.cancel()
+  demoCrewClock?.cancel()
   flush()
   let index = 0
   paint($, DEMO[0] ?? 'idle', DEMO_DETAIL)
-  const started = await $.clock.now()
+  demoStarted = await $.clock.now()
   const wasOpen = (await $.ui.panes().catch(() => [])).some(pane => pane.id === PANE)
-  await update($, demoCrew, () => sampleCrew(0, started, started))
+  await freshenPane($)
   await $.ui.open({ id: PANE, title: PANE_TITLE }).catch(() => undefined)
   await startTicking($)
+
+  demoCrewClock = $.clock.every(CREW_CLOCK_MS, () => {
+    void freshenPane($).catch(() => undefined)
+  })
 
   demo = $.clock.every(DEMO_MS, () => {
     index += 1
@@ -543,6 +570,9 @@ async function playDemo($: EngineInterface): Promise<void> {
     if (activity === undefined) {
       demo?.cancel()
       demo = undefined
+      demoCrewClock?.cancel()
+      demoCrewClock = undefined
+      demoStarted = undefined
       restore($)
       void update($, demoCrew, () => null)
         .then(() => (wasOpen ? undefined : $.ui.close({ id: PANE })))
@@ -552,11 +582,6 @@ async function playDemo($: EngineInterface): Promise<void> {
     }
 
     paint($, activity, DEMO_DETAIL)
-    const at = index
-    void $.clock
-      .now()
-      .then(now => update($, demoCrew, () => sampleCrew(at, started, now)))
-      .catch(() => undefined)
   })
 }
 
@@ -893,7 +918,7 @@ export const register: Register = on => {
 
       if (isOwnWork) {
         const detail = detailOf(e.tool, args, await read($, isRaw))
-        void changeCrew($, before => amend(before, helper, member => step(member, activity, detail)))
+        void changeCrew($, (before, now) => amend(before, helper, member => step(member, activity, detail, now)))
       }
 
       return next(e)
@@ -1069,6 +1094,9 @@ export const register: Register = on => {
     stopTicking()
     demo?.cancel()
     demo = undefined
+    demoCrewClock?.cancel()
+    demoCrewClock = undefined
+    demoStarted = undefined
     flush()
     isWorking = false
     isDesigning = false
@@ -1134,7 +1162,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const shown = (await read($, demoCrew)) ?? (await read($, crew))
 
-    return crewTree($.ui.resolve(e), shown, await read($, crewView), await read($, frame))
+    return crewTree($.ui.resolve(e), shown, await read($, crewView), await read($, frame), await $.clock.now())
   })
 
   // A card's steps unfold and fold again, and so does a group.

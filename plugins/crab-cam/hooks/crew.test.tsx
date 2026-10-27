@@ -2,7 +2,19 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
 import type { AgentInfo, On } from 'claude-code'
 
-import { CREW_COLOURS, NO_CREW, colourOf, elapsed, finish, join, tokensText, workflowNameOf } from './crew'
+import {
+  CREW_COLOURS,
+  NO_CREW,
+  SAMPLE_TURN_MS,
+  colourOf,
+  elapsed,
+  finish,
+  join,
+  sampleCrew,
+  tokensText,
+  workflowNameOf,
+} from './crew'
+import { crabSvg, resumed } from './scenes'
 
 const PANE = {
   plugin: 'crab-cam',
@@ -130,6 +142,30 @@ test('times, tokens and workflow names read as the pane shows them', () => {
   expect(workflowNameOf({ name: 'audit' })).toBe('audit')
   expect(workflowNameOf({ script: "export const meta = {\n  name: 'review-changes',\n  description: 'x' }" })).toBe('review-changes')
   expect(workflowNameOf({ script: 'agent("x")' })).toBeUndefined()
+})
+
+test("the demo's crew moves on one helper at a time at most, and two of them finish", () => {
+  const at = (turn: number) =>
+    sampleCrew(0, turn * SAMPLE_TURN_MS).members.map(member => `${member.phase} ${member.steps.length}`)
+
+  for (let turn = 1; turn < 24; turn += 1) {
+    const [before, after] = [at(turn - 1), at(turn)]
+    // A turn of one that is through already passes without a change.
+    expect(after.filter((card, seat) => card !== before[seat]).length).toBeLessThanOrEqual(1)
+  }
+
+  expect(at(23).filter(card => card.startsWith('done'))).toHaveLength(2)
+})
+
+test('a drawing drawn afresh goes on where it was rather than starting over', () => {
+  const drawing = '<svg><animate dur="1s"/><animate dur="1s" begin="0.25s"/><animateTransform dur="1s" fill="freeze"></animateTransform></svg>'
+  expect(resumed(drawing, 12.5)).toBe(
+    '<svg><animate dur="1s" begin="-12.5s"/><animate dur="1s" begin="-12.25s"/><animateTransform dur="1s" fill="freeze" begin="-12.5s"></animateTransform></svg>',
+  )
+
+  // Every animation of a real crab is moved back, none is left to start at 0.
+  const crab = resumed(crabSvg('coding', '#1D9E75'), 3)
+  expect(crab.match(/<animate/g)?.length).toBe(crab.match(/begin="-/g)?.length)
 })
 
 test('a subagent gets a card with its task, and its type, time, model and tokens under it', async ($, on) => {

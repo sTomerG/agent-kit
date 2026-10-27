@@ -6,7 +6,7 @@
 // crew. Run: npx tsx scripts/make-demo.mts
 import { mkdirSync, writeFileSync } from 'node:fs'
 
-import { colourOf, detailsOf, groupsOf, sampleCrew, sceneLine, sceneOf, titleOf } from '../hooks/crew'
+import { SAMPLE_TURN_MS, colourOf, detailsOf, groupsOf, sampleCrew, sceneLine, sceneOf, titleOf } from '../hooks/crew'
 import { meterLines, meterSvg, meterWidth } from '../hooks/meter'
 import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg } from '../hooks/scenes'
 
@@ -121,13 +121,14 @@ const CARD_HEIGHT = SCENE_HEIGHT * CARD_SCALE + 28
 const HEADING = 34
 const PANE_WIDTH = 600
 
-// The Crab crew pane as the demo fills it: the sample crew step by step, its
-// subagents and its workflow's agents each under their heading.
+// The Crab crew pane as the demo fills it: the sample crew turn by turn, one
+// helper moving on at a time, its subagents and its workflow's agents each
+// under their heading.
 function paneDemo(): string {
-  const steps = 10
+  const steps = 16
   let height = 0
   const frames = Array.from({ length: steps }, (_, index) => {
-    const crew = sampleCrew(index, 0, index * 3000 + 4000)
+    const crew = sampleCrew(0, index * SAMPLE_TURN_MS + 4000)
     let y = PAD
     let inside = ''
 
@@ -162,7 +163,7 @@ function paneDemo(): string {
 
     height = Math.max(height, y + PAD - 18)
 
-    return step(index, steps, 2.5, inside)
+    return step(index, steps, 2, inside)
   })
 
   return (
