@@ -506,9 +506,10 @@ const frame = (x: number, width: number, inner: string) =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x} 0 ${width} ${SCENE_HEIGHT}" ` +
   `width="${width}" height="${SCENE_HEIGHT}" shape-rendering="geometricPrecision">${inner}</svg>`
 
-// The crab of a scene, in Claude's orange or, for one of the crew, its own.
-export function crabSvg(activity: Activity, body = ORANGE): string {
-  return frame(0, CRAB_WIDTH, crab(CRAB_X, CRAB_Y, SCENES[activity]().pose, 1, 0, body))
+// The crab of a scene, in Claude's orange or, for one of the crew, its own;
+// lifted, it stands that much higher in its frame.
+export function crabSvg(activity: Activity, body = ORANGE, lift = 0): string {
+  return frame(0, CRAB_WIDTH, crab(CRAB_X, CRAB_Y - lift, SCENES[activity]().pose, 1, 0, body))
 }
 
 export function propSvg(activity: Activity): string {

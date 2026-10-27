@@ -2,14 +2,16 @@ import type { Elements } from 'claude-code'
 
 import type { Crew, CrewMember, CrewView } from '../types'
 import type { CrewGroupView } from './crew'
-import { chipsOf, colourOf, elapsedOf, groupsOf, sceneLine, sceneOf, titleOf } from './crew'
+import { colourOf, detailsOf, groupsOf, sceneLine, sceneOf, titleOf } from './crew'
 import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg, sceneRows } from './scenes'
 
 export const PANE = 'crab-crew'
 export const PANE_TITLE = 'Crab crew'
 
-// A card's drawing is the band's at three quarters of its size.
+// A card's drawing is the band's at three quarters of its size, its crab
+// lifted to stand level with the prop beside it, mid-card.
 const CARD_SCALE = 0.75
+const CARD_LIFT = 10
 
 type Table = Elements['terminal'] | Elements['desktop'] | Elements['vscode'] | Elements['mobile']
 
@@ -51,7 +53,12 @@ function crabOf(table: Table, member: CrewMember, tick: number) {
 
     return (
       <Box flexDirection="row" flexShrink={0}>
-        <Svg source={crabSvg(activity, colour)} alt={`A crab in ${colour}`} width={CRAB_WIDTH * CARD_SCALE} height={height} />
+        <Svg
+          source={crabSvg(activity, colour, CARD_LIFT)}
+          alt={`A crab in ${colour}`}
+          width={CRAB_WIDTH * CARD_SCALE}
+          height={height}
+        />
         <Svg source={propSvg(activity)} alt={sceneLine(member)} width={PROP_WIDTH * CARD_SCALE} height={height} />
       </Box>
     )
@@ -78,7 +85,6 @@ function card(table: Table, member: CrewMember, crew: Crew, view: CrewView, tick
   const colour = colourOf(member)
   const isOpen = view.open.includes(member.id)
   const count = member.steps.length
-  const about = [member.type, elapsedOf(member, crew.now)].filter(part => part !== null).join(' · ')
 
   return (
     <Box
@@ -95,16 +101,9 @@ function card(table: Table, member: CrewMember, crew: Crew, view: CrewView, tick
           <Text bold wrap="truncate-end">
             {titleOf(member, crew.members)}
           </Text>
-          <Box flexDirection="row" gap={1}>
-            <Text dimColor wrap="truncate-end">
-              {about}
-            </Text>
-            {chipsOf(member).map(chip => (
-              <Text color="#FFFFFF" backgroundColor={colour}>
-                {` ${chip} `}
-              </Text>
-            ))}
-          </Box>
+          <Text dimColor wrap="truncate-end">
+            {detailsOf(member, crew.now)}
+          </Text>
           <Text wrap="truncate-end">{sceneLine(member)}</Text>
           {count > 0 && (
             <Button key={stepsKey(member.id)} plain dimColor onPress={() => undefined}>
@@ -133,7 +132,11 @@ function group(table: Table, shown: CrewGroupView, crew: Crew, view: CrewView, t
       <Button key={groupKey(shown.key)} plain onPress={() => undefined}>
         {label}
       </Button>
-      {!isFolded && shown.members.map(member => card(table, member, crew, view, tick))}
+      {!isFolded && (
+        <Box flexDirection="column" gap={1} width="100%">
+          {shown.members.map(member => card(table, member, crew, view, tick))}
+        </Box>
+      )}
     </Box>
   )
 }

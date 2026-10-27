@@ -128,11 +128,18 @@ export function tokensText(tokens: number): string {
 // `haiku-5-5`.
 export const shortModel = (model: string): string => model.replace(/^claude-/, '')
 
-// The chips on a card: its model and its tokens, each once there is a reading.
-export function chipsOf(member: CrewMember): string[] {
-  return [member.model === null ? '' : shortModel(member.model), member.tokens === null ? '' : tokensText(member.tokens)].filter(
-    chip => chip !== '',
-  )
+// The line under a card's title: its type, how long it has been at work, and
+// its model and tokens once there is a reading. A workflow's agent is titled
+// by its type already, so the type is left out there.
+export function detailsOf(member: CrewMember, now: number): string {
+  return [
+    member.group === 'workflow' ? null : member.type,
+    elapsedOf(member, now),
+    member.model === null ? null : shortModel(member.model),
+    member.tokens === null ? null : tokensText(member.tokens),
+  ]
+    .filter(part => part !== null)
+    .join(' · ')
 }
 
 // The name a Workflow call gives its workflow: its `name`, or the name in the

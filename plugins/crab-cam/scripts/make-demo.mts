@@ -6,7 +6,7 @@
 // crew. Run: npx tsx scripts/make-demo.mts
 import { mkdirSync, writeFileSync } from 'node:fs'
 
-import { chipsOf, colourOf, elapsedOf, groupsOf, sampleCrew, sceneLine, sceneOf, titleOf } from '../hooks/crew'
+import { colourOf, detailsOf, groupsOf, sampleCrew, sceneLine, sceneOf, titleOf } from '../hooks/crew'
 import { meterLines, meterSvg, meterWidth } from '../hooks/meter'
 import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg } from '../hooks/scenes'
 
@@ -121,18 +121,6 @@ const CARD_HEIGHT = SCENE_HEIGHT * CARD_SCALE + 28
 const HEADING = 34
 const PANE_WIDTH = 600
 
-// A card's chip: white on the helper's colour, as the pane draws it.
-function chip(x: number, y: number, text: string, colour: string): { svg: string; width: number } {
-  const width = text.length * 6.6 + 14
-
-  return {
-    svg:
-      `<rect x="${x}" y="${y - 12}" width="${width}" height="17" rx="8.5" fill="${colour}"/>` +
-      `<text x="${x + width / 2}" y="${y}" font-size="11" font-weight="600" fill="#FFFFFF" text-anchor="middle">${escape(text)}</text>`,
-    width,
-  }
-}
-
 // The Crab crew pane as the demo fills it: the sample crew step by step, its
 // subagents and its workflow's agents each under their heading.
 function paneDemo(): string {
@@ -151,14 +139,6 @@ function paneDemo(): string {
         const colour = colourOf(member)
         const activity = sceneOf(member)
         const textX = PAD + 14 + (CRAB_WIDTH + PROP_WIDTH) * CARD_SCALE + 14
-        const meta = [member.type, elapsedOf(member, crew.now)].filter(part => part !== null).join(' · ')
-        let chipX = textX + meta.length * 7 + 10
-        const chips = chipsOf(member).map(text => {
-          const drawn = chip(chipX, y + 46, text, colour)
-          chipX += drawn.width + 6
-
-          return drawn.svg
-        })
         const count = member.steps.length
         const drawing = (svg: string, x: number, width: number) =>
           svg
@@ -168,11 +148,10 @@ function paneDemo(): string {
         inside +=
           `<rect x="${PAD}" y="${y}" width="${PANE_WIDTH - PAD * 2}" height="${CARD_HEIGHT}" rx="10" fill="none" ` +
           `stroke="${member.phase === 'working' ? colour : '#5F5E5A'}" stroke-width="1.5"/>` +
-          drawing(crabSvg(activity, colour), PAD + 14, CRAB_WIDTH * CARD_SCALE) +
+          drawing(crabSvg(activity, colour, 10), PAD + 14, CRAB_WIDTH * CARD_SCALE) +
           drawing(propSvg(activity), PAD + 14 + CRAB_WIDTH * CARD_SCALE, PROP_WIDTH * CARD_SCALE) +
           `<text x="${textX}" y="${y + 24}" font-size="14" font-weight="600" fill="${TEXT}">${escape(titleOf(member, crew.members))}</text>` +
-          `<text x="${textX}" y="${y + 46}" font-size="12" fill="${DIM}">${escape(meta)}</text>` +
-          chips.join('') +
+          `<text x="${textX}" y="${y + 46}" font-size="12" fill="${DIM}">${escape(detailsOf(member, crew.now))}</text>` +
           `<text x="${textX}" y="${y + 66}" font-size="12" fill="${TEXT}" font-family="${MONO}">${escape(sceneLine(member))}</text>` +
           `<text x="${textX}" y="${y + 84}" font-size="11" fill="${DIM}">▸ ${count === 1 ? '1 step' : `${count} steps`}</text>`
         y += CARD_HEIGHT + 10

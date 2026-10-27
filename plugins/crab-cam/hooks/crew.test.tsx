@@ -132,7 +132,7 @@ test('times, tokens and workflow names read as the pane shows them', () => {
   expect(workflowNameOf({ script: 'agent("x")' })).toBeUndefined()
 })
 
-test('a subagent gets a card with its task, type, model, tokens and steps', async ($, on) => {
+test('a subagent gets a card with its task, and its type, time, model and tokens under it', async ($, on) => {
   const { clock } = session(on, [running('h1', 'Review the diff', 'Explore')])
   on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'h1' }))
 
@@ -145,9 +145,7 @@ test('a subagent gets a card with its task, type, model, tokens and steps', asyn
   for (const surface of ['desktop', 'terminal'] as const) {
     const texts = await paneTexts($, surface)
     expect(texts).toContain('Review the diff')
-    expect(texts).toContain('Explore · 0:05')
-    expect(texts).toContain(' haiku-5-5 ')
-    expect(texts).toContain(' 11.2k tokens ')
+    expect(texts).toContain('Explore · 0:05 · haiku-5-5 · 11.2k tokens')
     expect(texts).toContain('reading · a.ts')
     expect(texts).toContain('▾ Subagents · 1 of 1 running')
     expect(texts).toContain('▸ 1 step')
@@ -162,7 +160,7 @@ test('a subagent gets a card with its task, type, model, tokens and steps', asyn
   await clock.advance(5000)
   const after = await paneTexts($)
   expect(after).toContain('done')
-  expect(after).toContain('Explore · 0:05')
+  expect(after).toContain('Explore · 0:05 · haiku-5-5 · 11.2k tokens')
   expect(after).toContain('▾ Subagents · 0 of 1 running')
 })
 
@@ -203,6 +201,9 @@ test("a workflow's agents share a group headed by its name, each by type and num
   expect(texts).toContain('▾ review-changes · 2 of 2 running')
   expect(texts).toContain('Explore 1')
   expect(texts).toContain('Explore 2')
+  // Their titles name the type already.
+  expect(texts).toContain('0:00')
+  expect(texts).not.toContain('Explore · 0:00')
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'group-workflow' })
