@@ -1,9 +1,12 @@
 // Writes the README's animations with the mod's own drawings, as the desktop
 // app draws them: assets/demo-scenes.svg loops through a few scenes,
-// assets/demo-meter.svg fills the meter, and assets/demo-meter-details.svg does
-// the same with the readings beside it (`/crab-cam details`). Run: npx tsx scripts/make-demo.mts
+// assets/demo-meter.svg fills the meter, assets/demo-meter-details.svg does
+// the same with the readings beside it (`/crab-cam details`), and
+// assets/demo-pane.svg shows the Crab crew pane at work on the demo's sample
+// crew. Run: npx tsx scripts/make-demo.mts
 import { mkdirSync, writeFileSync } from 'node:fs'
 
+import { SAMPLE_TURN_MS, colourOf, elapsedOf, groupsOf, pillsOf, sampleCrew, sceneOfMember, sceneOf, titleOf } from '../hooks/crew'
 import { meterLines, meterSvg, meterWidth } from '../hooks/meter'
 import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg } from '../hooks/scenes'
 
@@ -112,7 +115,104 @@ function meterDemo(detailed: boolean): string {
     : band(246, 'crab-cam meter: the shell fills with the context window, the pearls with the rate limits', steps.join(''))
 }
 
+// The pane's cards, each with its drawing a little larger than the band's,
+// and the calm colours a dark theme gives them: a fill a shade lighter than the
+// pane, a faint edge, and pills a shade lighter again.
+const CARD_SCALE = 1.1
+const CARD_HEIGHT = 128
+const HEADING = 34
+const PANE_WIDTH = 600
+const CARD_FILL = '#30302E'
+const CARD_EDGE = '#4A4945'
+const PILL_FILL = '#3D3D3A'
+const DONE = '#4EBA65'
+const FAILED = '#E5534B'
+
+// A subject cut to what fits beside its statement on a card.
+const clipped = (text: string, room: number) => (text.length > room ? `${text.slice(0, room - 1)}…` : text)
+
+// About how wide a line of text is drawn, for the pills around it.
+const textWidth = (text: string, size: number) => text.length * size * 0.56
+
+// The Crab crew pane as the demo fills it: the sample crew turn by turn, one
+// helper moving on at a time, its subagents and its workflow's agents each
+// under their heading.
+function paneDemo(): string {
+  const steps = 16
+  let height = 0
+  const frames = Array.from({ length: steps }, (_, index) => {
+    const crew = sampleCrew(0, index * SAMPLE_TURN_MS + 4000)
+    let y = PAD
+    let inside = ''
+
+    for (const group of groupsOf(crew)) {
+      inside +=
+        `<text x="${PAD}" y="${y + 20}" font-size="14" font-weight="600" fill="${TEXT}">⌄ ${escape(group.heading)}</text>` +
+        `<text x="${PANE_WIDTH - PAD}" y="${y + 20}" font-size="13" fill="${DIM}" text-anchor="end">${group.running} of ${group.members.length} running</text>`
+      y += HEADING
+
+      for (const member of group.members) {
+        const colour = colourOf(member)
+        const activity = sceneOf(member)
+        const textX = PAD + 14 + (CRAB_WIDTH + PROP_WIDTH) * CARD_SCALE + 14
+        const drawingY = y + (CARD_HEIGHT - SCENE_HEIGHT * CARD_SCALE) / 2
+        const drawing = (svg: string, x: number, width: number) =>
+          svg
+            .replace(/^<svg /, `<svg x="${x}" y="${drawingY}" `)
+            .replace(/ width="[\d.]+" height="[\d.]+"/, ` width="${width}" height="${SCENE_HEIGHT * CARD_SCALE}"`)
+        const scene = sceneOfMember(member)
+        const time =
+          member.phase === 'done'
+            ? { glyph: '✓', colour: DONE }
+            : member.phase === 'failed'
+              ? { glyph: '✕', colour: FAILED }
+              : { glyph: '', colour: DIM }
+        let pillX = textX
+        let pills = ''
+
+        for (const part of pillsOf(member)) {
+          const width = textWidth(part, 11) + 14
+          pills +=
+            `<rect x="${pillX}" y="${y + 66}" width="${width}" height="18" rx="5" fill="${PILL_FILL}"/>` +
+            `<text x="${pillX + 7}" y="${y + 79}" font-size="11" fill="${DIM}">${escape(part)}</text>`
+          pillX += width + 6
+        }
+
+        inside +=
+          `<rect x="${PAD}" y="${y}" width="${PANE_WIDTH - PAD * 2}" height="${CARD_HEIGHT}" rx="10" fill="${CARD_FILL}" ` +
+          `stroke="${CARD_EDGE}" stroke-width="1"/>` +
+          drawing(crabSvg(activity, colour, 10), PAD + 14, CRAB_WIDTH * CARD_SCALE) +
+          drawing(propSvg(activity), PAD + 14 + CRAB_WIDTH * CARD_SCALE, PROP_WIDTH * CARD_SCALE) +
+          `<text x="${textX}" y="${y + 28}" font-size="14" font-weight="600" fill="${TEXT}">${escape(titleOf(member, crew.members))}</text>` +
+          `<text x="${PANE_WIDTH - PAD - 14}" y="${y + 28}" font-size="12" fill="${time.colour}" text-anchor="end">${time.glyph === '' ? '' : `${time.glyph} `}${elapsedOf(member, crew.now)}</text>` +
+          `<text x="${textX}" y="${y + 52}" font-size="12" fill="${TEXT}">${escape(scene.verb)}` +
+          (scene.subject === '' ? '' : ` <tspan fill="${DIM}">· ${escape(clipped(scene.subject, 44 - scene.verb.length))}</tspan>`) +
+          `</text>` +
+          pills +
+          `<text x="${textX}" y="${y + 108}" font-size="11" fill="${DIM}">› Steps (${member.steps.length})</text>`
+        y += CARD_HEIGHT + 10
+      }
+
+      y += 8
+    }
+
+    height = Math.max(height, y + PAD - 18)
+
+    return step(index, steps, 2, inside)
+  })
+
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PANE_WIDTH} ${height}" width="${PANE_WIDTH}" height="${height}" ` +
+    `font-family="${SANS}" role="img" aria-label="The Crab crew pane: a card for each subagent, with its own crab acting out its work">` +
+    `<rect width="${PANE_WIDTH}" height="${height}" rx="14" fill="#262624"/>` +
+    `<rect x="0.5" y="0.5" width="${PANE_WIDTH - 1}" height="${height - 1}" rx="13.5" fill="none" stroke="#3D3D3A"/>` +
+    frames.join('') +
+    `</svg>\n`
+  )
+}
+
 mkdirSync(OUT, { recursive: true })
 writeFileSync(`${OUT}/demo-scenes.svg`, scenesDemo())
 writeFileSync(`${OUT}/demo-meter.svg`, meterDemo(false))
 writeFileSync(`${OUT}/demo-meter-details.svg`, meterDemo(true))
+writeFileSync(`${OUT}/demo-pane.svg`, paneDemo())

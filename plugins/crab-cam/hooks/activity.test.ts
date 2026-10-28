@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Activity } from '../types'
-import { activityOf, activityOfStreaming, helpersLine, isHandback, opensDesign, sceneOfLingering } from './activity'
+import { activityOf, activityOfStreaming, briefLine, helpersLine, isBrief, isHandback, opensDesign, sceneOfLingering } from './activity'
 
 const COMMANDS: readonly (readonly [string, Activity])[] = [
   ['cat README.md', 'reading'],
@@ -173,11 +173,21 @@ test('a design skill, a design tool or the start of an artifact takes up design 
 
 test('helpers at work are counted by what they are doing, the most common first', () => {
   expect(helpersLine([])).toBe('')
-  expect(helpersLine([{ activity: 'reading' }])).toBe('1 helper: reading')
+  expect(helpersLine([{ activity: 'reading' }])).toBe('crew of 1: reading')
   expect(helpersLine([{ activity: 'testing', about: 'Review the diff' }])).toBe('Review the diff: running tests')
   expect(helpersLine([{ activity: 'thinking' }, { activity: 'terminal' }, { activity: 'terminal', about: 'Build' }])).toBe(
-    '3 helpers: 2 running commands, 1 thinking',
+    'crew of 3: 2 running commands, 1 thinking',
   )
+})
+
+test("a crew's brief is told by the one subagent's task, or by how many there are", () => {
+  expect(isBrief('Agent')).toBe(true)
+  expect(isBrief('Workflow')).toBe(true)
+  expect(isBrief('SendMessage')).toBe(false)
+  expect(briefLine([{ tool: 'Agent', json: '{"description": "Review the di' }])).toBe('')
+  expect(briefLine([{ tool: 'Agent', json: '{"description": "Review the diff", "prompt": "' }])).toBe('Review the diff')
+  expect(briefLine([{ tool: 'Agent', json: '' }, { tool: 'Task', json: '' }])).toBe('briefing 2 subagents')
+  expect(briefLine([{ tool: 'Workflow', json: '{"script": "export const meta = {\\"description\\": \\"x\\"}' }])).toBe('')
 })
 
 test('the call a helper hands its answer back with is no work of its own', () => {

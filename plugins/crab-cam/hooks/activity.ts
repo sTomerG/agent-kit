@@ -240,6 +240,30 @@ export function isToldByArgs(tool: string): boolean {
   return isShell(tool) || tool in TELLING
 }
 
+// The calls that start a crew, whose arguments are its brief: a subagent's
+// prompt, a workflow's script. Writing one takes seconds, and the crew starts
+// only once every call of the response is written.
+const BRIEFS = new Set(['Agent', 'Task', 'Workflow'])
+const SUBAGENTS = new Set(['Agent', 'Task'])
+
+export function isBrief(tool: string): boolean {
+  return BRIEFS.has(tool)
+}
+
+// What a crew is being briefed for, by the briefs being written: how many
+// subagents, or the one's task once its description is in.
+export function briefLine(briefs: readonly { tool: string; json: string }[]): string {
+  const subagents = briefs.filter(brief => SUBAGENTS.has(brief.tool))
+
+  const [only] = subagents
+
+  if (subagents.length > 1) {
+    return `briefing ${subagents.length} subagents`
+  }
+
+  return only === undefined ? '' : (whole(only.json, 'description') ?? '')
+}
+
 // Which scene a call is: by the tool, and for a command or a file by what it
 // is about (`args` absent while the call's arguments are still streaming).
 // `isDesigning` says the turn has taken up design work, which makes a page
@@ -319,7 +343,7 @@ export function opensDesign(tool: string, args?: Readonly<Record<string, unknown
 export type Helper = { activity: Activity; about?: string }
 
 // What a helper is doing, in a word or two that reads after a count.
-const DOING: Record<Activity, string> = {
+export const DOING: Record<Activity, string> = {
   idle: 'resting',
   thinking: 'thinking',
   reading: 'reading',
@@ -329,6 +353,7 @@ const DOING: Record<Activity, string> = {
   terminal: 'running commands',
   searching: 'searching',
   web: 'browsing',
+  briefing: 'briefing',
   delegating: 'delegating',
   talking: 'replying',
   asking: 'asking',
@@ -352,8 +377,8 @@ export function isHandback(tool: string): boolean {
   return tool === 'SubagentHandback' || tool === 'StructuredOutput'
 }
 
-// The helpers at work in one line: how many, and what they are doing, the
-// most common first. A lone helper goes by what it is for, where that is known.
+// The crew at work in one line: how many, and what they are doing, the most
+// common first. A lone helper goes by what it is for, where that is known.
 export function helpersLine(helpers: readonly Helper[]): string {
   const [only] = helpers
 
@@ -362,7 +387,7 @@ export function helpersLine(helpers: readonly Helper[]): string {
   }
 
   if (helpers.length === 1) {
-    return `${only.about ?? '1 helper'}: ${DOING[only.activity]}`
+    return `${only.about ?? 'crew of 1'}: ${DOING[only.activity]}`
   }
 
   const tally = new Map<Activity, number>()
@@ -373,11 +398,12 @@ export function helpersLine(helpers: readonly Helper[]): string {
 
   const doing = [...tally].sort((one, other) => other[1] - one[1]).map(([activity, count]) => `${count} ${DOING[activity]}`)
 
-  return `${helpers.length} helpers: ${doing.join(', ')}`
+  return `crew of ${helpers.length}: ${doing.join(', ')}`
 }
 
-// A task still running in the background once the turn is over.
-export type Lingering = { type: string; description: string; command?: string }
+// A task still running in the background once the turn is over; a workflow
+// goes by its name.
+export type Lingering = { type: string; description: string; command?: string; name?: string }
 
 // A subscription that stays open for as long as the session does, such as the
 // live updates of a published artifact. Nothing is in progress, so it must not

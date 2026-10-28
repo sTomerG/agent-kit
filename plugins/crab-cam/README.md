@@ -1,6 +1,6 @@
 # crab-cam
 
-A Claude Code mod: a small crab above the prompt acts out what Claude is doing, in the terminal, the desktop app and VS Code. Beside it, a shell shows how full the context window is and how much of your rate limits is used.
+A Claude Code mod: a small crab above the prompt acts out what Claude is doing, in the terminal, the desktop app and VS Code. Beside it, a shell shows how full the context window is and how much of your rate limits is used. When Claude puts subagents to work, the Crab crew pane gives each one a crab of its own.
 
 > Optimised for the Claude Code desktop app.
 
@@ -22,10 +22,11 @@ To get new versions, run `claude plugin update crab-cam@agent-kit`, or enable au
 | Command | What it does |
 | :- | :- |
 | `/crab-cam` | Hide or show the crab |
-| `/crab-cam demo` | Play every scene, three seconds each |
+| `/crab-cam demo` | Play every scene, three seconds each, with a sample crew in the Crab crew pane near the end |
 | `/crab-cam meter` | Hide or show the shell meter |
 | `/crab-cam details` | Show or hide the meter's readings in figures beside the shell |
 | `/crab-cam commands` | Show commands as typed, or go back to the description of what they do |
+| `/crab-cam crew` | Open or close the Crab crew pane |
 
 ## Scenes
 
@@ -42,7 +43,8 @@ The scene follows the tool Claude calls. A shell command is read for what it doe
 | running tests | `pytest`, `vitest`, `jest`, `npm test`, `cargo test` and the like |
 | working with git | `git` and `gh`, also further on in a chain such as `make build && git status` |
 | installing packages | `npm install`, `pip install`, `uv add`, `brew install` and the like |
-| putting helpers to work | subagents and workflows, during the turn and while they run on after it; the line under it says how many are at work and what they are doing, such as `3 helpers: 2 reading, 1 running tests` |
+| briefing its crew | while Claude writes the calls that start subagents or a workflow, before any of them has started; the line under it says what the one subagent is for, or how many there are, such as `briefing 3 subagents`; a workflow alone gets no line |
+| running a crew | subagents and workflows, during the turn and while they run on after it; the line under it says how many are at work and what they are doing, such as `crew of 3: 2 reading, 1 running tests` |
 | making a plan | plan mode and task lists |
 | loading a skill | `Skill` |
 | writing text | an edit to a text file: `.md`, `.txt`, `.rst`, `README`, `CHANGELOG` and the like |
@@ -56,7 +58,7 @@ The scene follows the tool Claude calls. A shell command is read for what it doe
 | oops | a tool call failed, or an API error or refusal ended the turn |
 | done, resting | the turn ended |
 
-Work inside a subagent is not shown; the crab stays on "putting helpers to work" until the helper returns.
+The crab stays on "Claude is running a crew" until its subagents return. What each of them is doing shows in the [Crab crew pane](#crab-crew-pane).
 
 ## Meter
 
@@ -74,13 +76,30 @@ The meter comes in two forms, and `/crab-cam meter` hides it altogether:
 | :- | :- |
 | ![The meter filling up: the shell with the context window, the pearls with the rate limits](assets/demo-meter.svg) | ![The same meter with its readings in figures beside it](assets/demo-meter-details.svg) |
 
+## Crab crew pane
+
+![The Crab crew pane: two subagents and a workflow's three agents, each with a crab in its own colour acting out its work](assets/demo-pane.svg)
+
+While subagents are at work, the crew stands beside the crab in the band: a small crab for each, in its card's colour, bobbing while it works and still with a tick once it is done. Past three, the band says how many more. While the pane is closed, a **Watch crew ↗** button beside them opens it. `/crab-cam crew` opens or closes it too. A new round of subagents, the first after all the earlier ones are through and their workflows have ended, clears the cards of the round before.
+
+- **Groups**: subagents under one heading, a workflow's agents under another, named after the workflows running. Each heading says how many are still running and folds when you click it.
+- **Crab**: each subagent has its own colour, starting with green, and acts out its own scene. Orange stays Claude's own. Past six subagents in one round, the colours repeat. The terminal draws the crab in block glyphs, as the band does.
+- **Title**: the task a subagent was given, or the label a workflow gave its agent. A workflow's agent without a label goes by its type and a number, such as `Explore 2`.
+- **Time**: how long it has been at work, at the title's right, behind a tick when done or a cross when it failed.
+- **Scene line**: under the title, what it is doing now and what about, such as `Running tests · claude plugin test`.
+- **Pills**: the agent's type, then its model and tokens once there is a reading, such as `Explore`, `Haiku 5.5` and `3.8k tokens`. An agent titled by its type gets no type pill. The terminal has no fills, so there they go on a line of their own.
+- **Steps**: click Steps to unfold its last 50 steps, such as `Read · register.tsx` or `Ran tests · claude plugin test`.
+- **When it ends**: the crab shows done or oops, and the card stays until the next round.
+
+The pane takes its ideas from helper-desk, a mod by Ben AI. No code of it is used.
+
 ## Development
 
 ```bash
 claude --plugin-dir ./plugins/crab-cam   # load from disk, reload on save
 claude plugin test plugins/crab-cam      # run the tests
 claude plugin validate plugins/crab-cam  # check the manifest and hooks
-npx tsx plugins/crab-cam/scripts/make-demo.mts  # redraw the animations in assets/
+npx tsx plugins/crab-cam/scripts/make-demo.mts  # redraw the drawings in assets/
 ```
 
 The editor types under `.claude-plugin/types/` are generated and not committed. Claude Code writes them for your version when it loads the mod with `--plugin-dir`.

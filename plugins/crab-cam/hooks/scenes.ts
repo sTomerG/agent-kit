@@ -1,4 +1,5 @@
-import type { Activity } from '../types'
+import type { Activity, CrewBand } from '../types'
+import { CREW_COLOURS } from './crew'
 
 export const ORANGE = '#D97757'
 export const EYE = '#2B2520'
@@ -81,16 +82,20 @@ function eye(x: number, look: Look): string {
 }
 
 // The crab is 48 by 29 before scaling: body, two arms, two eyes, four legs.
-function crab(x: number, y: number, pose: Pose, scale = 1, delay = 0): string {
+function crab(x: number, y: number, pose: Pose, scale = 1, delay = 0, body = ORANGE): string {
   const { look = 'ahead', arms = 'still', bob = 1.6, isShaking = false, wear = '' } = pose
-  const motion = isShaking ? slide('0 0;-1.6 0;1.6 0;0 0', 0.28) : slide('0 0;0 -1.6;0 0', bob, `begin="${delay}s"`)
+  const motion = isShaking
+    ? slide('0 0;-1.6 0;1.6 0;0 0', 0.28)
+    : bob === 0
+      ? ''
+      : slide('0 0;0 -1.6;0 0', bob, `begin="${delay}s"`)
   const legs = [9, 16, 28, 35].map(legX => `<rect x="${legX}" y="22" width="4" height="7"/>`).join('')
 
   return (
     `<g transform="translate(${x} ${y}) scale(${scale})">` +
     `<ellipse cx="24" cy="30" rx="19" ry="1.8" fill="#000" opacity="0.14"/>` +
     `<g>${motion}` +
-    `<g fill="${ORANGE}">` +
+    `<g fill="${body}">` +
     `<rect x="6" y="0" width="36" height="22"/>` +
     `<rect x="0" y="${ARMS[arms].y}" width="6" height="7">${ARMS[arms].left}</rect>` +
     `<rect x="42" y="${ARMS[arms].y}" width="6" height="7">${ARMS[arms].right}</rect>` +
@@ -100,8 +105,9 @@ function crab(x: number, y: number, pose: Pose, scale = 1, delay = 0): string {
   )
 }
 
-// A small crab beside the big one, as part of a scene's prop.
-export const helper = (x: number, y: number, delay: number) => crab(x, y, { bob: 0.7 }, 0.5, delay)
+// A small crab beside the big one, as part of a scene's prop, in a colour of
+// the crew's.
+export const helper = (x: number, y: number, delay: number, body: string) => crab(x, y, { bob: 0.7 }, 0.5, delay, body)
 
 export function bubble(inside: string): string {
   return (
@@ -303,9 +309,21 @@ export const SCENES: Record<Activity, () => Drawing> = {
       `<g>${slide('102 46;110 36;97 31;102 46', 3)}<path d="M0,0 L0,11 L3,8.2 L5.4,13 L7.4,12 L5,7.4 L9,7.4 Z" fill="${EYE}" stroke="${PAPER}" stroke-width="0.9"/></g>`,
   }),
 
+  briefing: () => ({
+    pose: WAVING,
+    prop:
+      `<rect x="60" y="10" width="28" height="40" rx="3" fill="#C9A06B" stroke="#9C7643" stroke-width="1.3"/>` +
+      `<rect x="63" y="14" width="22" height="33" rx="1.5" fill="${PAPER}" stroke="${LINE}" stroke-width="1"/>` +
+      `<rect x="67" y="7.5" width="14" height="6" rx="2" fill="${SLATE}"/>` +
+      [16, 12, 16].map((width, i) => bar(66, 20 + i * 7, width, LINE, loop('width', `0;0;${width};${width}`, 3, `keyTimes="0;${(i * 0.3).toFixed(1)};${(i * 0.3 + 0.3).toFixed(1)};1"`))).join('') +
+      helper(92, 6, 0, CREW_COLOURS[0]) +
+      helper(104, 22, 0.35, CREW_COLOURS[1]) +
+      helper(92, 38, 0.2, CREW_COLOURS[2]),
+  }),
+
   delegating: () => ({
     pose: WAVING,
-    prop: helper(66, 40, 0) + helper(96, 40, 0.35) + helper(81, 18, 0.2),
+    prop: helper(66, 40, 0, CREW_COLOURS[0]) + helper(81, 18, 0.2, CREW_COLOURS[1]) + helper(96, 40, 0.35, CREW_COLOURS[2]),
   }),
 
   talking: () => ({
@@ -506,13 +524,77 @@ const frame = (x: number, width: number, inner: string) =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x} 0 ${width} ${SCENE_HEIGHT}" ` +
   `width="${width}" height="${SCENE_HEIGHT}" shape-rendering="geometricPrecision">${inner}</svg>`
 
-export function crabSvg(activity: Activity): string {
-  return frame(0, CRAB_WIDTH, crab(CRAB_X, CRAB_Y, SCENES[activity]().pose))
+// The crab of a scene, in Claude's orange or, for one of the crew, its own;
+// lifted, it stands that much higher in its frame.
+export function crabSvg(activity: Activity, body = ORANGE, lift = 0): string {
+  return frame(0, CRAB_WIDTH, crab(CRAB_X, CRAB_Y - lift, SCENES[activity]().pose, 1, 0, body))
 }
 
 export function propSvg(activity: Activity): string {
   return frame(SPLIT, PROP_WIDTH, SCENES[activity]().prop)
 }
+
+// A drawing as it stands so many seconds in: every animation's start moved
+// that far back. A surface that draws a drawing afresh starts its animations
+// over; drawn this way it goes on where it was, so the restart does not show.
+export function resumed(svg: string, seconds: number): string {
+  const back = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds * 1000) / 1000) : 0
+
+  return svg.replace(/<(animate|animateTransform|animateMotion)\b([^>]*?)(\/?)>/g, (_, tag: string, attributes: string, end: string) => {
+    const begin = /\sbegin="(-?[\d.]+)s"/.exec(attributes)
+    const at = begin === null ? 0 : Number(begin[1])
+    const rest = begin === null ? attributes : attributes.replace(begin[0], '')
+
+    return `<${tag}${rest} begin="${Math.round((at - back) * 1000) / 1000}s"${end}>`
+  })
+}
+
+// The crew as the band shows it beside Claude's crab: up to so many small
+// crabs in their own colours, then how many more. One at work bobs; one
+// through stands still under the done scene's tick, or its warning if it failed.
+export const BAND_CREW = 3
+
+const CREW_SLOT = 30
+const CREW_MORE = 24
+const CREW_HEIGHT = 22
+
+const tick = (x: number, y: number) =>
+  `<g transform="translate(${x} ${y})"><circle r="4.5" fill="#2DA44E"/>` +
+  `<polyline points="-2.2,0 -0.6,1.8 2.4,-1.8" fill="none" stroke="#FFFFFF" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></g>`
+
+const warning = (x: number, y: number) =>
+  `<g transform="translate(${x} ${y})"><circle r="4.5" fill="${RED}"/>` +
+  `<rect x="-0.7" y="-2.8" width="1.4" height="3.4" rx="0.7" fill="#FFFFFF"/><circle cx="0" cy="2" r="0.8" fill="#FFFFFF"/></g>`
+
+export function crewSvg(band: CrewBand): { svg: string; width: number; height: number } {
+  const shown = band.crabs.slice(0, BAND_CREW)
+  const more = band.crabs.length - shown.length
+  const width = shown.length * CREW_SLOT + (more > 0 ? CREW_MORE : 0)
+  const crabs = shown
+    .map(({ colour, phase }, seat) => {
+      const x = seat * CREW_SLOT
+      const mark = phase === 'done' ? tick(x + 23, 4.5) : phase === 'failed' ? warning(x + 23, 4.5) : ''
+
+      return crab(x + 1, 6, { bob: phase === 'working' ? 0.9 : 0 }, 0.5, seat * 0.2, colour) + mark
+    })
+    .join('')
+  const count =
+    more > 0
+      ? `<text x="${shown.length * CREW_SLOT + 2}" y="16" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" fill="${GREY}">+${more}</text>`
+      : ''
+
+  return {
+    svg:
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${CREW_HEIGHT}" width="${width}" height="${CREW_HEIGHT}" ` +
+      `shape-rendering="geometricPrecision">${crabs}${count}</svg>`,
+    width,
+    height: CREW_HEIGHT,
+  }
+}
+
+// The same crew in the terminal: a glyph crab in each colour, a tick or a
+// warning after one that is through, then how many more.
+export const CREW_GLYPH = '▟█▙'
 
 // Crab and prop as one drawing, for a page that shows a scene on its own.
 export function drawingSvg(drawing: Drawing): string {
@@ -571,6 +653,7 @@ const PROPS: Record<Activity, readonly Frame[]> = {
     ['┌○○○──┐', '│█████│', '└─────┘'],
     ['┌○○○──┐', '│≡≡≡≡ │', '└─────┘'],
   ],
+  briefing: ['  ', '≡ ', '≡≡', '≡≡'].map((lines): Frame => ['┌┴┴┐ ▟█▙   ', `│${lines}│   ▟█▙ `, '└──┘ ▟█▙   ']),
   delegating: [
     ['           ', '▗▟█▙▖ ▗▟█▙▖', ' ▘ ▝   ▘ ▝ '],
     ['▗▟█▙▖      ', ' ▘ ▝  ▗▟█▙▖', '       ▘ ▝ '],
