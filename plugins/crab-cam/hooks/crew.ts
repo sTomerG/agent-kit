@@ -29,21 +29,20 @@ export function bandOf(crew: Crew): CrewBand {
 }
 
 // Takes a helper on, the first time it is heard of. One that comes while none
-// is at work starts a new round: the cards of the round before go. A workflow
-// of the round still running keeps it going, as its agents may run one after
-// another.
+// is at work starts a new round, the cards of the round before going, unless
+// the round goes on: a workflow of it still runs, its agents one after another.
 export function join(
   crew: Crew,
   id: string,
   now: number,
   upcoming: readonly string[],
-  running: readonly string[] = [],
+  goesOn = false,
 ): { crew: Crew; isNewRound: boolean } {
   if (crew.members.some(member => member.id === id)) {
     return { crew, isNewRound: false }
   }
 
-  const isNewRound = !isWorking(crew) && !crew.workflows.some(name => running.includes(name))
+  const isNewRound = !isWorking(crew) && !goesOn
   const kept = isNewRound ? [] : crew.members
   const workflows = isNewRound ? [...upcoming] : crew.workflows
   const member: CrewMember = {
@@ -151,11 +150,16 @@ export function sceneLine(member: CrewMember): string {
   return subject === '' ? verb : `${verb} · ${subject}`
 }
 
-// A subagent goes by what it is for; a workflow's agents have nothing to say
-// so, and go by their type and a number among those of that type.
+// A helper goes by what it is for: a subagent's task, a workflow agent's
+// label. A workflow's agent without a label goes by its type and a number
+// among those of that type.
 export function titleOf(member: CrewMember, members: readonly CrewMember[]): string {
   if (member.group !== 'workflow') {
     return member.about ?? member.type ?? 'Subagent'
+  }
+
+  if (member.about !== null) {
+    return member.about
   }
 
   const type = member.type ?? 'agent'
@@ -214,10 +218,12 @@ export function modelName(model: string): string {
 }
 
 // The line under a card's title: its type and how long it has been at work.
-// A workflow's agent is titled by its type already, so the type is left out
-// there.
+// A workflow's agent without a label is titled by its type already, so the
+// type is left out there.
 export function detailsOf(member: CrewMember, now: number): string {
-  return [member.group === 'workflow' ? null : member.type, elapsedOf(member, now)].filter(part => part !== null).join(' · ')
+  const isTitledByType = member.group === 'workflow' && member.about === null
+
+  return [isTitledByType ? null : member.type, elapsedOf(member, now)].filter(part => part !== null).join(' · ')
 }
 
 // Its model and tokens, once there is a reading of them.

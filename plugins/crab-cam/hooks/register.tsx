@@ -209,6 +209,11 @@ const finished = new Set<string>()
 // The workflows called and not yet through, by name: a round with one of them
 // goes on between its agents.
 let runningWorkflows: readonly string[] = []
+// Whether a workflow runs, named or not: called and not yet seen through.
+let isWorkflowAfoot = false
+// Whether a workflow was called while no helper was at work: its first agent
+// starts a round of its own, even under a name the last round had.
+let isRunCalled = false
 // Runs while one of the crew is at work, moving its elapsed time on.
 let crewClock: Timer | undefined
 // The workflows called while no round of helpers runs: the next round's.
@@ -553,8 +558,13 @@ function enlist($: EngineInterface, id: string): void {
   enlisted.add(id)
   let isNewRound = false
   void changeCrew($, (before, now) => {
-    const joined = join(before, id, now, upcoming, runningWorkflows)
+    const joined = join(before, id, now, upcoming, goesOn(before))
     isNewRound = joined.isNewRound
+
+    if (isNewRound) {
+      upcoming = []
+      isRunCalled = false
+    }
 
     return joined.crew
   }).then(async () => {
@@ -565,24 +575,55 @@ function enlist($: EngineInterface, id: string): void {
 
     startCrewClock($)
 
-    if (isNewRound) {
-      upcoming = []
-
-      if (demo === undefined && (await read($, isCrewAuto))) {
-        await $.ui.open({ id: PANE, title: PANE_TITLE }).catch(() => undefined)
-      }
+    if (isNewRound && demo === undefined && (await read($, isCrewAuto))) {
+      await $.ui.open({ id: PANE, title: PANE_TITLE }).catch(() => undefined)
     }
 
     await sortMember($, id)
   })
 }
 
-// A workflow was heard of: the round under way goes by its name too, or the
-// next one does when none runs.
+// Whether a round with no one at work goes on: a workflow of it still runs,
+// by its name, or one without a name is afoot and the round has its agents.
+// A workflow called since starts a round of its own.
+function goesOn(before: Crew): boolean {
+  if (isRunCalled) {
+    return false
+  }
+
+  const hasAgents = before.members.some(member => member.group === 'workflow')
+
+  return before.workflows.some(name => runningWorkflows.includes(name)) || (isWorkflowAfoot && hasAgents)
+}
+
+// A workflow was called, by name or not: the round under way takes it on, or
+// the next one does when none is at work.
+function calledWorkflow($: EngineInterface, name: string | undefined): void {
+  isWorkflowAfoot = true
+
+  if (name !== undefined) {
+    runningWorkflows = runningWorkflows.includes(name) ? runningWorkflows : [...runningWorkflows, name]
+  }
+
+  void changeCrew($, before => {
+    if (isCrewWorking(before)) {
+      return name === undefined || before.workflows.includes(name) ? before : { ...before, workflows: [...before.workflows, name] }
+    }
+
+    isRunCalled = true
+    upcoming = name === undefined || upcoming.includes(name) ? upcoming : [...upcoming, name]
+
+    return before
+  })
+}
+
+// A stop lists a workflow still running: the round it began in goes by its
+// name, which a workflow called by its saved script never said; or the next
+// round does, when none is under way.
 function heardWorkflow($: EngineInterface, name: string): void {
   runningWorkflows = runningWorkflows.includes(name) ? runningWorkflows : [...runningWorkflows, name]
   void changeCrew($, before => {
-    if (isCrewWorking(before)) {
+    if (isCrewWorking(before) || goesOn(before)) {
       return before.workflows.includes(name) ? before : { ...before, workflows: [...before.workflows, name] }
     }
 
@@ -1038,11 +1079,7 @@ export const register: Register = on => {
     }
 
     if (e.tool === 'Workflow') {
-      const name = workflowNameOf(args)
-
-      if (name !== undefined) {
-        heardWorkflow($, name)
-      }
+      calledWorkflow($, workflowNameOf(args))
     }
 
     isDesigning ||= opensDesign(e.tool, args)
@@ -1144,23 +1181,26 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // The call that starts a subagent says what it is for; a workflow's agents
-  // start without one.
+  // The call that starts a helper says what it is for. A workflow starts its
+  // agents the same way, under the labels it gave them; the engine lists a
+  // subagent and never a workflow's agent, which tells the two apart.
   on('agent.spawn', async ($, e, next) => {
     const started = await next(e)
 
     const id = started.agentId
 
     if (id !== undefined) {
-      const about = e.description === '' ? e.subagentType : e.description
-      noteHelper($, id, { about })
+      // A fork is not listed either, and is the model's own.
+      const listed = e.fork || !isWorkflowAfoot ? undefined : await $.agent.list().catch(() => undefined)
+      const isWorkflows = listed !== undefined && !listed.some(agent => agent.id === id)
+      const about = e.description !== '' ? e.description : isWorkflows ? null : e.subagentType
+      noteHelper($, id, about === null ? {} : { about })
       enlist($, id)
-      // A spawned helper is a subagent, even one taken for a fork before the
-      // engine listed it.
+      // One taken for a fork before the engine listed it joins again.
       void changeCrew($, (before, now) =>
-        amend(join(before, id, now, [], runningWorkflows).crew, id, member => ({
+        amend(join(before, id, now, [], true).crew, id, member => ({
           ...member,
-          group: 'subagent',
+          group: isWorkflows ? 'workflow' : 'subagent',
           about,
           type: e.subagentType || member.type,
           model: member.model ?? started.model,
@@ -1231,6 +1271,8 @@ export const register: Register = on => {
     finished.clear()
     upcoming = []
     runningWorkflows = []
+    isWorkflowAfoot = false
+    isRunCalled = false
     stopCrewClock()
     void changeCrew($, () => NO_CREW)
     void update($, demoCrew, () => null).catch(() => undefined)
@@ -1245,6 +1287,7 @@ export const register: Register = on => {
     lingering = e.background_tasks ?? []
     // The workflows still running are those the stop lists.
     runningWorkflows = []
+    isWorkflowAfoot = lingering.some(task => task.type === 'workflow')
 
     for (const task of lingering) {
       if (task.type === 'workflow' && task.name !== undefined && task.name !== '') {

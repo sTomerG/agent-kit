@@ -424,6 +424,11 @@ test("a workflow's agents that run one after another stay one round under its na
   await $.classic.SubagentStart({ agent_id: 'w1', agent_type: 'Explore' })
   await clock.advance(0)
   await helperEnds($, 'w1')
+  // The turn stops in between, with the workflow still running.
+  await $.classic.Stop({
+    stop_hook_active: false,
+    background_tasks: [{ id: 'b1', type: 'workflow', status: 'running', description: 'review', name: 'review-changes' }],
+  })
   await clock.advance(0)
   await $.classic.SubagentStart({ agent_id: 'w2', agent_type: 'Explore' })
   await clock.advance(0)
@@ -461,4 +466,88 @@ test('a round that starts during the demo keeps the pane open after it, with cre
 
   expect(closes).toEqual([])
   expect(await paneTexts($)).toContain('Review the diff')
+})
+
+test("a workflow's agents spawned under labels go by them, in the workflow's group", async ($, on) => {
+  const { clock } = session(on)
+  on('agent.spawn', (_, e) => ({ model: 'claude-opus-5-5', agentId: e.description === 'meter colours' ? 'w1' : 'w2' }))
+
+  await $.turn.start({ text: 'check it', turnId: 't1' })
+  const script = "export const meta = { name: 'crew-check', description: 'x' }"
+  await $.tool.call({ tool: 'Workflow', tool_use_id: 'w', script })
+  await spawn($, 'meter colours', 'Explore')
+  await clock.advance(0)
+  await helperEnds($, 'w1')
+  await spawn($, 'demo assets', 'Explore')
+  await clock.advance(0)
+
+  const texts = await paneTexts($)
+  expect(texts).toContain('⌄ Workflow · crew-check')
+  expect(texts).not.toContain('⌄ Subagents')
+  expect(texts).toContain('meter colours')
+  expect(texts).toContain('demo assets')
+  expect(texts).toContain('Explore · 0:00')
+  expect(texts).toContain('1 of 2 running')
+})
+
+test('a workflow run again under the same name starts a round of its own', async ($, on) => {
+  const { clock } = session(on)
+  let next = 'w1'
+  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: next }))
+  const script = "export const meta = { name: 'crew-check', description: 'x' }"
+
+  await $.turn.start({ text: 'check it', turnId: 't1' })
+  await $.tool.call({ tool: 'Workflow', tool_use_id: 'w', script })
+  await spawn($, 'meter colours', 'Explore')
+  await helperEnds($, 'w1')
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [] })
+  await clock.advance(0)
+
+  next = 'w2'
+  await $.turn.start({ text: 'again', turnId: 't2' })
+  await $.tool.call({ tool: 'Workflow', tool_use_id: 'w-again', script })
+  await spawn($, 'demo assets', 'Explore')
+  await clock.advance(0)
+
+  const texts = await paneTexts($)
+  expect(texts).toContain('demo assets')
+  expect(texts).not.toContain('meter colours')
+  expect(texts).toContain('1 of 1 running')
+})
+
+test('a workflow called by its saved script keeps its round, and takes its name from the stop', async ($, on) => {
+  const { clock } = session(on)
+  let next = 'w0'
+  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: next }))
+  const script = "export const meta = { name: 'crew-check', description: 'x' }"
+
+  // A round from before, of a run with the same name.
+  await $.turn.start({ text: 'check it', turnId: 't1' })
+  await $.tool.call({ tool: 'Workflow', tool_use_id: 'w', script })
+  await spawn($, 'state keys', 'Explore')
+  await helperEnds($, 'w0')
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [] })
+  await clock.advance(0)
+
+  next = 'w1'
+  await $.turn.start({ text: 'again', turnId: 't2' })
+  await $.tool.call({ tool: 'Workflow', tool_use_id: 'w-again', scriptPath: '/scripts/crew-check.js' })
+  await spawn($, 'meter colours', 'Explore')
+  await clock.advance(0)
+  expect(await paneTexts($)).not.toContain('state keys')
+
+  await helperEnds($, 'w1')
+  await $.classic.Stop({
+    stop_hook_active: false,
+    background_tasks: [{ id: 'b1', type: 'workflow', status: 'running', description: 'crew-check', name: 'crew-check' }],
+  })
+  next = 'w2'
+  await spawn($, 'demo assets', 'Explore')
+  await clock.advance(0)
+
+  const texts = await paneTexts($)
+  expect(texts).toContain('⌄ Workflow · crew-check')
+  expect(texts).toContain('meter colours')
+  expect(texts).toContain('demo assets')
+  expect(texts).toContain('1 of 2 running')
 })
