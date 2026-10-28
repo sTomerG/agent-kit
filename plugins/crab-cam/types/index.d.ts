@@ -68,6 +68,10 @@ export type Crew = { members: CrewMember[]; workflows: string[]; now: number }
 // Which cards have their steps unfolded and which groups are folded, by id.
 export type CrewView = { open: string[]; folded: string[] }
 
+// The crew as the band shows it: each helper the pane shows, in its colour and
+// phase, in start order, and when the first of them began.
+export type CrewBand = { since: number; crabs: { colour: string; phase: CrewPhase }[] }
+
 declare module 'claude-code' {
   interface PluginState {
     'crab-cam': {
@@ -83,6 +87,9 @@ declare module 'claude-code' {
       demoCrew: Crew | null
       crewView: CrewView
       isCrewAuto: boolean
+      // The crew as the band shows it, apart from the crew so that the band is
+      // drawn again only when a helper joins or ends, not on every tick.
+      crewBand: CrewBand
     }
   }
 }

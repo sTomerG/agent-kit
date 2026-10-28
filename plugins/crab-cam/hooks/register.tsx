@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { Elements, EngineInterface, Register, Timer } from 'claude-code'
 
-import type { Activity, Crew, CrewView, Meter, Scene } from '../types'
+import type { Activity, Crew, CrewBand, CrewView, Meter, Scene } from '../types'
 import type { Helper, Lingering } from './activity'
 import {
   activityOf,
@@ -13,10 +13,10 @@ import {
   sceneOfLingering,
   whole,
 } from './activity'
-import { NO_CREW, amend, finish, isWorking as isCrewWorking, join, sampleCrew, step, workflowNameOf } from './crew'
+import { NO_BAND, NO_CREW, amend, bandOf, finish, isWorking as isCrewWorking, join, leave, sampleCrew, step, workflowNameOf } from './crew'
 import { meterAlt, meterLines, meterRow, meterSvg, meterWidth } from './meter'
 import { PANE, PANE_TITLE, crabRow, crewTree, groupKey, stepsKey } from './pane'
-import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg, sceneRows } from './scenes'
+import { BAND_CREW, CRAB_WIDTH, CREW_GLYPH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, crewSvg, propSvg, resumed, sceneRows } from './scenes'
 
 const COMMAND = 'crab-cam'
 const REST_AFTER_MS = 8000
@@ -78,7 +78,18 @@ const crew = atom({ plugin: 'crab-cam', key: 'crew' } as const, NO_CREW)
 const demoCrew = atom({ plugin: 'crab-cam', key: 'demoCrew' } as const, null as Crew | null)
 const crewView = atom({ plugin: 'crab-cam', key: 'crewView' } as const, { open: [], folded: [] } as CrewView)
 // Whether the pane opens by itself when a new round of helpers starts.
-const isCrewAuto = atom({ plugin: 'crab-cam', key: 'isCrewAuto' } as const, true)
+const isCrewAuto = atom({ plugin: 'crab-cam', key: 'isCrewAuto' } as const, false)
+// The crew as the band shows it. The band reads this rather than the crew,
+// whose every tick would draw it again.
+const crewBand = atom({ plugin: 'crab-cam', key: 'crewBand' } as const, NO_BAND)
+
+// The band's button that opens the pane while a crew works and it is closed.
+const WATCH = 'watch-crew'
+const WATCH_LABEL = 'Watch crew ↗'
+
+// What the band draws of the crew: its crabs while one is at work, whether to
+// offer the pane, and the time the crabs are drawn at.
+type Watch = { band: CrewBand | undefined; isOffered: boolean; now: number }
 
 const LABELS: Record<Activity, string> = {
   idle: 'Claude is resting',
@@ -90,7 +101,7 @@ const LABELS: Record<Activity, string> = {
   terminal: 'Claude is running a command',
   searching: 'Claude is searching',
   web: 'Claude is browsing the web',
-  delegating: 'Claude is putting the crew to work',
+  delegating: 'Claude has a crew at work',
   talking: 'Claude is writing a reply',
   asking: 'Claude has a question for you',
   planning: 'Claude is making a plan',
@@ -161,6 +172,9 @@ type Painted = { activity: Activity; detail: string; hold: number }
 type Call = { tool: string; activity: Activity; detail: string }
 
 let isWorking = false
+// Whether the conversation is being compacted: the crab tidies up until it is
+// through, whatever comes and goes meanwhile.
+let isCompacting = false
 // Whether this turn has taken up design work, by a design skill or tool or
 // the start of an artifact: a page written after that is designed, not coded.
 let isDesigning = false
@@ -190,6 +204,11 @@ let isHelperLineStale = false
 let crewWrites: Promise<unknown> = Promise.resolve()
 // The helpers the pane has taken on, so each is taken on once.
 const enlisted = new Set<string>()
+// The helpers whose end was heard: what comes from one after is left alone.
+const finished = new Set<string>()
+// The workflows called and not yet through, by name: a round with one of them
+// goes on between its agents.
+let runningWorkflows: readonly string[] = []
 // Runs while one of the crew is at work, moving its elapsed time on.
 let crewClock: Timer | undefined
 // The workflows called while no round of helpers runs: the next round's.
@@ -225,8 +244,20 @@ async function freshenPane($: EngineInterface): Promise<void> {
   if (started !== undefined) {
     const now = await $.clock.now()
     await update($, demoCrew, () => sampleCrew(started, now))
+    await syncBand($)
   } else if ((await read($, crew)).members.length > 0) {
     await changeCrew($, (before, now) => ({ ...before, now }))
+  }
+}
+
+// Brings the band's crew in line with the crew the pane shows, the demo's
+// while it plays; written only when a helper joined or ended.
+async function syncBand($: EngineInterface): Promise<void> {
+  const shown = demoStarted === undefined ? await read($, crew) : ((await read($, demoCrew)) ?? NO_CREW)
+  const next = bandOf(shown)
+
+  if (JSON.stringify(await read($, crewBand)) !== JSON.stringify(next)) {
+    await update($, crewBand, () => next)
   }
 }
 
@@ -365,6 +396,10 @@ function restore($: EngineInterface): void {
 // Draws the helpers' line where the crab is on helpers: during a turn only
 // while the scene is theirs already, between turns whenever the crab is settled.
 function drawHelpers($: EngineInterface): void {
+  if (isCompacting) {
+    return
+  }
+
   if (!isWorking) {
     if (rest === undefined) {
       settle($)
@@ -399,6 +434,10 @@ function helpersChanged($: EngineInterface): void {
 
 // Takes note of a helper: that it is there, and what is new about it.
 function noteHelper($: EngineInterface, id: string, news: Partial<Helper> = {}): void {
+  if (finished.has(id)) {
+    return
+  }
+
   const before = helpers.get(id)
   const now: Helper = { activity: 'thinking', ...before, ...news }
   helpers.set(id, now)
@@ -409,16 +448,22 @@ function noteHelper($: EngineInterface, id: string, news: Partial<Helper> = {}):
 }
 
 function dropHelper($: EngineInterface, id: string): void {
+  finished.add(id)
+
   if (helpers.delete(id)) {
     helpersChanged($)
   }
 }
 
 // Drops the helpers that are through without their end having been heard, as
-// after a crash: those the engine lists as no longer running, and those it
-// does not list at all, a workflow's, once no workflow is left running.
+// after a crash or a reload: those the engine lists as no longer running, and
+// those it does not list at all, a workflow's, once no workflow is left
+// running. The pane's cards count too, as a reload forgets who was at work.
 async function pruneHelpers($: EngineInterface): Promise<void> {
-  if (helpers.size === 0) {
+  const working = (await read($, crew)).members.filter(member => member.phase === 'working').map(member => member.id)
+  const ids = [...new Set([...helpers.keys(), ...working])]
+
+  if (ids.length === 0) {
     return
   }
 
@@ -430,7 +475,7 @@ async function pruneHelpers($: EngineInterface): Promise<void> {
 
   const hasWorkflow = lingering.some(task => task.type === 'workflow')
 
-  for (const id of [...helpers.keys()]) {
+  for (const id of ids) {
     const info = listed.find(agent => agent.id === id)
 
     if (info === undefined ? !hasWorkflow : info.status !== 'running') {
@@ -445,8 +490,10 @@ function changeCrew($: EngineInterface, change: (before: Crew, now: number) => C
   crewWrites = crewWrites
     .then(async () => {
       const now = await $.clock.now()
+      const after = await update($, crew, before => change(before, now))
+      await syncBand($)
 
-      return update($, crew, before => change(before, now))
+      return after
     })
     .catch(() => undefined)
 
@@ -491,6 +538,9 @@ async function sortMember($: EngineInterface, id: string): Promise<void> {
       return member.type !== null || hasWorkflow || before.workflows.length > 0 ? { ...member, group: 'workflow' } : member
     }),
   )
+  // A fork stays in no group: it is no one's crew, and is no reason for a
+  // round to go on.
+  await changeCrew($, before => (before.members.some(member => member.id === id && member.group === null) ? leave(before, id) : before))
 }
 
 // Takes a helper on in the pane the first time it is heard of. The first of a
@@ -503,11 +553,16 @@ function enlist($: EngineInterface, id: string): void {
   enlisted.add(id)
   let isNewRound = false
   void changeCrew($, (before, now) => {
-    const joined = join(before, id, now, upcoming)
+    const joined = join(before, id, now, upcoming, runningWorkflows)
     isNewRound = joined.isNewRound
 
     return joined.crew
   }).then(async () => {
+    // The session it came in may have ended meanwhile.
+    if (!enlisted.has(id)) {
+      return
+    }
+
     startCrewClock($)
 
     if (isNewRound) {
@@ -525,6 +580,7 @@ function enlist($: EngineInterface, id: string): void {
 // A workflow was heard of: the round under way goes by its name too, or the
 // next one does when none runs.
 function heardWorkflow($: EngineInterface, name: string): void {
+  runningWorkflows = runningWorkflows.includes(name) ? runningWorkflows : [...runningWorkflows, name]
   void changeCrew($, before => {
     if (isCrewWorking(before)) {
       return before.workflows.includes(name) ? before : { ...before, workflows: [...before.workflows, name] }
@@ -574,8 +630,14 @@ async function playDemo($: EngineInterface): Promise<void> {
       demoCrewClock = undefined
       demoStarted = undefined
       restore($)
+      // A round that began meanwhile would have opened the pane by itself.
       void update($, demoCrew, () => null)
-        .then(() => (wasOpen ? undefined : $.ui.close({ id: PANE })))
+        .then(() => syncBand($))
+        .then(async () => {
+          const isKept = wasOpen || ((await read($, isCrewAuto)) && isCrewWorking(await read($, crew)))
+
+          return isKept ? undefined : $.ui.close({ id: PANE })
+        })
         .catch(() => undefined)
 
       return
@@ -651,8 +713,9 @@ function terminalTree(
   tick: number,
   gauged: Meter | undefined,
   detailed: boolean,
+  watch: Watch,
 ) {
-  const { Box, Text } = table
+  const { Box, Button, Text } = table
   const { activity, detail } = shown
   const rows = sceneRows(activity, tick)
 
@@ -673,6 +736,27 @@ function terminalTree(
         </Text>
         {detailLine(table, detail)}
       </Box>
+      {watch.band !== undefined && (
+        <Box flexDirection="column" flexShrink={0}>
+          <Box flexDirection="row" gap={1}>
+            {watch.band.crabs.slice(0, BAND_CREW).map(({ colour, phase }) => (
+              <Box flexDirection="row">
+                <Text color={colour}>{CREW_GLYPH}</Text>
+                {phase === 'done' && <Text color="success">✓</Text>}
+                {phase === 'failed' && <Text color="error">!</Text>}
+              </Box>
+            ))}
+            {watch.band.crabs.length > BAND_CREW && <Text dimColor>{`+${watch.band.crabs.length - BAND_CREW}`}</Text>}
+          </Box>
+          {watch.isOffered ? (
+            <Button key={WATCH} onPress={() => undefined}>
+              {WATCH_LABEL}
+            </Button>
+          ) : (
+            <Text> </Text>
+          )}
+        </Box>
+      )}
       {gauged !== undefined && (
         <Box flexDirection="column" flexShrink={0}>
           <Text> </Text>
@@ -684,8 +768,15 @@ function terminalTree(
   )
 }
 
-function desktopTree(table: Elements['desktop'] | Elements['vscode'], shown: Scene, gauged: Meter | undefined, detailed: boolean) {
-  const { Box, Svg, Text } = table
+function desktopTree(
+  table: Elements['desktop'] | Elements['vscode'],
+  shown: Scene,
+  gauged: Meter | undefined,
+  detailed: boolean,
+  watch: Watch,
+) {
+  const { Box, Button, Svg, Text } = table
+  const row = watch.band === undefined ? undefined : crewSvg(watch.band)
   const { activity, detail } = shown
   const label = LABELS[activity]
 
@@ -704,6 +795,21 @@ function desktopTree(table: Elements['desktop'] | Elements['vscode'], shown: Sce
         <Text bold>{label}</Text>
         {detail !== '' && detailLine(table, detail)}
       </Box>
+      {row !== undefined && watch.band !== undefined && (
+        <Box flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
+          <Svg
+            source={resumed(row.svg, (watch.now - watch.band.since) / 1000)}
+            alt={`A crew of ${watch.band.crabs.length}`}
+            width={row.width}
+            height={row.height}
+          />
+          {watch.isOffered && (
+            <Button key={WATCH} onPress={() => undefined}>
+              {WATCH_LABEL}
+            </Button>
+          )}
+        </Box>
+      )}
       {gauged !== undefined && <Svg source={meterSvg(gauged)} alt={meterAlt(gauged)} width={meterWidth(gauged)} height={SCENE_HEIGHT} />}
       {gauged !== undefined && detailed && readings(table, gauged)}
     </Box>
@@ -725,6 +831,11 @@ export const register: Register = on => {
 
     if (stored.activity === 'done' || stored.activity === 'error') {
       show($, 'idle')
+    }
+
+    // Nor does it know the crew is at work: the cards' time goes on again.
+    if (isCrewWorking(await read($, crew))) {
+      startCrewClock($)
     }
 
     // The figures the session already has; later ones come with session.measure.
@@ -756,8 +867,8 @@ export const register: Register = on => {
 
       return {
         text: auto
-          ? 'The Crab crew pane opens by itself again when a new round of helpers starts.'
-          : 'The Crab crew pane no longer opens by itself. /crab-cam crew opens it.',
+          ? 'The Crab crew pane now opens by itself when a new round of helpers starts.'
+          : 'The Crab crew pane no longer opens by itself. Watch crew in the band or /crab-cam crew opens it.',
       }
     }
 
@@ -1003,11 +1114,16 @@ export const register: Register = on => {
       return next(e)
     }
 
+    // A compaction queued behind a turn starts as it ends: the rest that turn
+    // had coming would otherwise put the crab to rest in the middle of it.
+    stopTimers()
+    isCompacting = true
     show($, 'compacting', '', HOLD_MS)
 
     try {
       return await next(e)
     } finally {
+      isCompacting = false
       restore($)
     }
   })
@@ -1039,8 +1155,10 @@ export const register: Register = on => {
       const about = e.description === '' ? e.subagentType : e.description
       noteHelper($, id, { about })
       enlist($, id)
-      void changeCrew($, before =>
-        amend(before, id, member => ({
+      // A spawned helper is a subagent, even one taken for a fork before the
+      // engine listed it.
+      void changeCrew($, (before, now) =>
+        amend(join(before, id, now, [], runningWorkflows).crew, id, member => ({
           ...member,
           group: 'subagent',
           about,
@@ -1110,7 +1228,9 @@ export const register: Register = on => {
     helperBeat = undefined
     isHelperLineStale = false
     enlisted.clear()
+    finished.clear()
     upcoming = []
+    runningWorkflows = []
     stopCrewClock()
     void changeCrew($, () => NO_CREW)
     void update($, demoCrew, () => null).catch(() => undefined)
@@ -1123,6 +1243,8 @@ export const register: Register = on => {
   // crab then keeps at it rather than resting, until the next turn begins.
   on('classic.Stop', ($, e, next) => {
     lingering = e.background_tasks ?? []
+    // The workflows still running are those the stop lists.
+    runningWorkflows = []
 
     for (const task of lingering) {
       if (task.type === 'workflow' && task.name !== undefined && task.name !== '') {
@@ -1147,14 +1269,23 @@ export const register: Register = on => {
     const shown = await read($, scene)
     const gauged = (await read($, isMetered)) ? await read($, meter) : undefined
     const detailed = await read($, isDetailed)
+    // A crew at work stands beside the crab, and can be watched until its pane
+    // is on screen.
+    const band = await read($, crewBand)
+    const isOut = band.crabs.some(crab => crab.phase === 'working')
+    const watch: Watch = {
+      band: isOut ? band : undefined,
+      isOffered: isOut && !(await $.ui.panes().catch(() => [])).some(pane => pane.id === PANE && pane.isShown),
+      now: isOut ? await $.clock.now() : 0,
+    }
 
     if (e.surface === 'terminal') {
-      return terminalTree($.ui.resolve(e), shown, await read($, frame), gauged, detailed)
+      return terminalTree($.ui.resolve(e), shown, await read($, frame), gauged, detailed, watch)
     }
 
     // VS Code draws the same tree as the desktop: it has every element it uses.
     if (e.surface === 'desktop' || e.surface === 'vscode') {
-      return desktopTree($.ui.resolve(e), shown, gauged, detailed)
+      return desktopTree($.ui.resolve(e), shown, gauged, detailed, watch)
     }
 
     return next(e)
@@ -1167,9 +1298,17 @@ export const register: Register = on => {
     return crewTree($.ui.resolve(e), e.surface, shown, await read($, crewView), await read($, frame), await $.clock.now())
   })
 
-  // A card's steps unfold and fold again, and so does a group.
+  // The band's Watch crew opens the pane, and the band is drawn again without
+  // it. A card's steps unfold and fold again, and so does a group.
   on('ui.press', { plugin: 'crab-cam' }, async ($, e, next) => {
     const [steps, group] = [stepsKey(''), groupKey('')]
+
+    if (e.element === WATCH) {
+      await $.ui.open({ id: PANE, title: PANE_TITLE })
+      $.ui.invalidate('ui.render')
+
+      return { element: e.element }
+    }
 
     if (e.element.startsWith(steps)) {
       const id = e.element.slice(steps.length)

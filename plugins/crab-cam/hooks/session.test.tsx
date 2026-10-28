@@ -55,6 +55,30 @@ test('a turn with nothing left running ends on rest', async ($, on) => {
   expect(await says($, /resting/)).toBe(true)
 })
 
+test('a compaction queued behind a turn tidies up until it is through, not rest', async ($, on) => {
+  let finish: () => void = () => undefined
+  const isCompacted = new Promise<void>(resolve => {
+    finish = resolve
+  })
+  on('session.compact', async () => {
+    await isCompacted
+
+    return { messages: [{ role: 'user', text: 'The summary.', toolUses: [] }] }
+  })
+  const clock = session(on)
+
+  await $.turn.start({ text: 'hello', turnId: 't1' })
+  await $.turn.complete({ answer: 'Hi.', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
+  const compacting = $.session.compact({ trigger: 'manual', messages: [{ role: 'user', text: 'hello', toolUses: [] }] })
+  await clock.advance(30000)
+  expect(await says($, /tidying up its memory/)).toBe(true)
+
+  finish()
+  await compacting
+  await clock.advance(3000)
+  expect(await says($, /resting/)).toBe(true)
+})
+
 test('a turn an API error ended is not done', async ($, on) => {
   session(on)
 
@@ -74,7 +98,7 @@ test('a long call keeps the crab once a short one beside it returns', async ($, 
   await clock.advance(0)
   await $.tool.call({ tool: 'Read', tool_use_id: 'r', file_path: '/repo/notes.md' })
   await clock.advance(3000)
-  expect(await says($, /putting the crew to work/)).toBe(true)
+  expect(await says($, /has a crew at work/)).toBe(true)
 
   finish()
   await helper
@@ -243,7 +267,7 @@ test('the crew at work shows as how many there are and what they are doing', asy
   await $.tool.call({ tool: 'Read', tool_use_id: 'r', file_path: '/repo/a.ts', agentId: 'h1' })
   await $.tool.call({ tool: 'Bash', tool_use_id: 'b', command: 'npm test', agentId: 'h2' })
   await clock.advance(1500)
-  expect(await says($, /putting the crew to work/)).toBe(true)
+  expect(await says($, /has a crew at work/)).toBe(true)
   expect(await says($, /^crew of 2: 1 reading, 1 running tests$/)).toBe(true)
 
   await $.tool.call({ tool: 'SubagentHandback', tool_use_id: 's', agentId: 'h1' })

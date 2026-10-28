@@ -15,7 +15,7 @@ import {
   tokensText,
   workflowNameOf,
 } from './crew'
-import { crabSvg, resumed } from './scenes'
+import { CREW_GLYPH, crabSvg, crewSvg, resumed } from './scenes'
 
 const PANE = {
   plugin: 'crab-cam',
@@ -29,6 +29,12 @@ const PANE = {
     scroll: { offset: 0, bodyRows: 40 },
     view: {},
   },
+} as const
+
+const BAND = {
+  plugin: 'crab-cam',
+  component: 'AbovePrompt',
+  props: { hasSurvey: false, isWorking: true, maxRows: 8, bodyColumns: 120, scroll: { offset: 0, bodyRows: 8 }, view: {} },
 } as const
 
 const ENGINE = { plugin: 'engine', tier: 'core' } as const
@@ -123,14 +129,15 @@ test('a new round clears the cards of the last, and seats start over', () => {
   expect(next.crew.members[0]?.seat).toBe(0)
 })
 
-test('the colours go round after the seventh helper', () => {
+test("the colours go round after the sixth helper, and none is Claude's orange", () => {
   let crew = NO_CREW
 
-  for (const id of ['1', '2', '3', '4', '5', '6', '7', '8']) {
+  for (const id of ['1', '2', '3', '4', '5', '6', '7']) {
     crew = join(crew, id, 0, []).crew
   }
 
   expect(crew.members.map(colourOf)).toEqual([...CREW_COLOURS, CREW_COLOURS[0]])
+  expect(CREW_COLOURS).not.toContain('#D97757')
 })
 
 test('times, tokens and workflow names read as the pane shows them', () => {
@@ -160,6 +167,17 @@ test("the demo's crew moves on one helper at a time at most, and two of them fin
   }
 
   expect(at(23).filter(card => card.startsWith('done'))).toHaveLength(2)
+})
+
+test('the band shows three of the crew at most, then how many more; one through stands still with a tick', () => {
+  const crabs = CREW_COLOURS.map((colour, seat) => ({ colour, phase: seat === 0 ? ('done' as const) : ('working' as const) }))
+  const { svg, width } = crewSvg({ since: 0, crabs: [...crabs, { colour: CREW_COLOURS[0], phase: 'failed' }] })
+
+  expect(svg).toContain('>+4<')
+  expect(width).toBe(3 * 30 + 24)
+  expect(svg.match(/#2DA44E/g)).toHaveLength(1)
+  // Two of the three shown are at work and bob; the one through does not.
+  expect(svg.match(/<animateTransform/g)).toHaveLength(2)
 })
 
 test('a drawing drawn afresh goes on where it was rather than starting over', () => {
@@ -214,7 +232,7 @@ test('a subagent gets a card with its task, and its type, time, model and tokens
   expect(after).toContain('0 of 1 running')
 })
 
-test('the pane opens by itself as a round starts, until crew auto turns that off', async ($, on) => {
+test('the pane stays closed as a round starts, until crew auto has it open by itself', async ($, on) => {
   const listed = [running('h1', 'Review the diff', 'Explore'), running('h2', 'Fix the test', 'general-purpose')]
   const { clock, opens } = session(on, listed)
   let next = 'h1'
@@ -223,7 +241,7 @@ test('the pane opens by itself as a round starts, until crew auto turns that off
   await $.turn.start({ text: 'review it', turnId: 't1' })
   await spawn($, 'Review the diff', 'Explore')
   await clock.advance(0)
-  expect(opens).toEqual(['crab-crew'])
+  expect(opens).toEqual([])
 
   await helperEnds($, 'h1')
   await command($, 'crew auto')
@@ -235,6 +253,47 @@ test('the pane opens by itself as a round starts, until crew auto turns that off
   const texts = await paneTexts($)
   expect(texts).toContain('Fix the test')
   expect(texts).not.toContain('Review the diff')
+})
+
+test('while a crew works, the band offers to watch it until the pane is open', async ($, on) => {
+  const { clock, opens } = session(on, [running('h1', 'Review the diff', 'Explore')])
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'h1' }))
+  const watch = async (surface: 'desktop' | 'terminal') => {
+    const band = await $.ui.mount({ ...BAND, surface })
+    const button = await band.find({ type: 'Button', key: 'watch-crew' })
+    await band.unmount()
+
+    return button
+  }
+
+  await $.turn.start({ text: 'review it', turnId: 't1' })
+  expect(await watch('desktop')).toBeUndefined()
+
+  await spawn($, 'Review the diff', 'Explore')
+  await clock.advance(0)
+
+  for (const surface of ['desktop', 'terminal'] as const) {
+    expect((await watch(surface))?.text).toBe('Watch crew ↗')
+  }
+
+  // Beside the button stands the crew: a glyph crab in its colour on the terminal.
+  const terminal = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await terminal.findAll({ type: 'Text' })).map(found => found.text)).toContain(CREW_GLYPH)
+  await terminal.unmount()
+
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await band.press({ key: 'watch-crew' })
+  await band.unmount()
+  expect(opens).toEqual(['crab-crew'])
+  expect(await watch('desktop')).toBeUndefined()
+
+  // Closed again, the pane can be watched again, until the crew is through.
+  await command($, 'crew')
+  expect((await watch('desktop'))?.text).toBe('Watch crew ↗')
+
+  await helperEnds($, 'h1')
+  await clock.advance(0)
+  expect(await watch('desktop')).toBeUndefined()
 })
 
 test("a workflow's agents share a group headed by its name, each by type and number", async ($, on) => {
@@ -288,4 +347,118 @@ test('the demo fills the pane with a sample crew, and closes the pane after', as
   await clock.advance(120_000)
   expect(closes).toEqual(['crab-crew'])
   expect(await paneTexts($)).toContain('No crew yet. A card shows up here for every helper Claude puts to work.')
+})
+
+test('a helper whose end is never heard is through once the engine lists it so, and the next helper starts a new round', async ($, on) => {
+  const listed = [running('h1', 'Review the diff', 'Explore')]
+  const { clock } = session(on, listed)
+  let next = 'h1'
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: next }))
+
+  await $.turn.start({ text: 'review it', turnId: 't1' })
+  await spawn($, 'Review the diff', 'Explore')
+  await clock.advance(0)
+
+  listed[0] = { ...running('h1', 'Review the diff', 'Explore'), status: 'completed' }
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [] })
+  await clock.advance(0)
+  expect(await paneTexts($)).toContain('Done')
+
+  next = 'h2'
+  listed.push(running('h2', 'Fix the test', 'general-purpose'))
+  await $.turn.start({ text: 'fix it', turnId: 't2' })
+  await spawn($, 'Fix the test', 'general-purpose')
+  await clock.advance(0)
+  const texts = await paneTexts($)
+  expect(texts).toContain('Fix the test')
+  expect(texts).not.toContain('Review the diff')
+})
+
+test("a fork is no one's crew, and does not keep the last round's cards", async ($, on) => {
+  const listed = [running('h1', 'Review the diff', 'Explore')]
+  const { clock } = session(on, listed)
+  let next = 'h1'
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: next }))
+
+  await $.turn.start({ text: 'review it', turnId: 't1' })
+  await spawn($, 'Review the diff', 'Explore')
+  // A fork: the engine does not list it, and it has no type.
+  await $.classic.SubagentStart({ agent_id: 'f1', agent_type: '' })
+  await clock.advance(0)
+  await helperEnds($, 'h1')
+  await clock.advance(0)
+
+  next = 'h2'
+  listed.push(running('h2', 'Fix the test', 'general-purpose'))
+  await spawn($, 'Fix the test', 'general-purpose')
+  await clock.advance(0)
+  const texts = await paneTexts($)
+  expect(texts).toContain('Fix the test')
+  expect(texts).not.toContain('Review the diff')
+  expect(texts).toContain('1 of 1 running')
+})
+
+test('what a helper does after its end changes nothing of its card', async ($, on) => {
+  const { clock } = session(on, [running('h1', 'Review the diff', 'Explore')])
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'h1' }))
+
+  await $.turn.start({ text: 'review it', turnId: 't1' })
+  await spawn($, 'Review the diff', 'Explore')
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/repo/a.ts', agentId: 'h1' })
+  await helperEnds($, 'h1')
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r2', file_path: '/repo/b.ts', agentId: 'h1' })
+  await clock.advance(5000)
+
+  const texts = await paneTexts($)
+  expect(texts).toContain('Done')
+  expect(texts).toContain('› Steps (1)')
+  expect(texts).toContain('0 of 1 running')
+})
+
+test("a workflow's agents that run one after another stay one round under its name", async ($, on) => {
+  const { clock } = session(on)
+
+  await $.turn.start({ text: 'audit it', turnId: 't1' })
+  const script = "export const meta = { name: 'review-changes', description: 'x' }"
+  await $.tool.call({ tool: 'Workflow', tool_use_id: 'w', script })
+  await $.classic.SubagentStart({ agent_id: 'w1', agent_type: 'Explore' })
+  await clock.advance(0)
+  await helperEnds($, 'w1')
+  await clock.advance(0)
+  await $.classic.SubagentStart({ agent_id: 'w2', agent_type: 'Explore' })
+  await clock.advance(0)
+
+  const texts = await paneTexts($, 'terminal')
+  expect(texts).toContain('⌄ Workflow · review-changes')
+  expect(texts).toContain('1 of 2 running')
+  expect(texts).toContain('Explore 1')
+  expect(texts).toContain('Explore 2')
+})
+
+test('a helper that ends without an answer shows it stopped before it finished', async ($, on) => {
+  const { clock } = session(on, [running('h1', 'Review the diff', 'Explore')])
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'h1' }))
+
+  await $.turn.start({ text: 'review it', turnId: 't1' })
+  await spawn($, 'Review the diff', 'Explore')
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 'h1', reason: 'answer', agentId: 'h1' })
+  await clock.advance(0)
+
+  const texts = await paneTexts($)
+  expect(texts).toContain('Stopped before it finished')
+  expect(texts).toContain('0 of 1 running')
+})
+
+test('a round that starts during the demo keeps the pane open after it, with crew auto on', async ($, on) => {
+  const { clock, closes } = session(on, [running('h1', 'Review the diff', 'Explore')])
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'h1' }))
+
+  await command($, 'crew auto')
+  await command($, 'demo')
+  await $.turn.start({ text: 'review it', turnId: 't1' })
+  await spawn($, 'Review the diff', 'Explore')
+  await clock.advance(120_000)
+
+  expect(closes).toEqual([])
+  expect(await paneTexts($)).toContain('Review the diff')
 })

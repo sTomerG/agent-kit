@@ -27,7 +27,7 @@ To get new versions, run `claude plugin update crab-cam@agent-kit`, or enable au
 | `/crab-cam details` | Show or hide the meter's readings in figures beside the shell |
 | `/crab-cam commands` | Show commands as typed, or go back to the description of what they do |
 | `/crab-cam crew` | Open or close the Crab crew pane |
-| `/crab-cam crew auto` | Turn off or on that the Crab crew pane opens by itself |
+| `/crab-cam crew auto` | Turn on or off that the Crab crew pane opens by itself |
 
 ## Scenes
 
@@ -44,7 +44,7 @@ The scene follows the tool Claude calls. A shell command is read for what it doe
 | running tests | `pytest`, `vitest`, `jest`, `npm test`, `cargo test` and the like |
 | working with git | `git` and `gh`, also further on in a chain such as `make build && git status` |
 | installing packages | `npm install`, `pip install`, `uv add`, `brew install` and the like |
-| putting the crew to work | subagents and workflows, during the turn and while they run on after it; the line under it says how many are at work and what they are doing, such as `crew of 3: 2 reading, 1 running tests` |
+| a crew at work | subagents and workflows, during the turn and while they run on after it; the line under it says how many are at work and what they are doing, such as `crew of 3: 2 reading, 1 running tests` |
 | making a plan | plan mode and task lists |
 | loading a skill | `Skill` |
 | writing text | an edit to a text file: `.md`, `.txt`, `.rst`, `README`, `CHANGELOG` and the like |
@@ -58,7 +58,7 @@ The scene follows the tool Claude calls. A shell command is read for what it doe
 | oops | a tool call failed, or an API error or refusal ended the turn |
 | done, resting | the turn ended |
 
-The crab stays on "putting the crew to work" until the helpers return. What each of them is doing shows in the [Crab crew pane](#crab-crew-pane).
+The crab stays on "Claude has a crew at work" until the helpers return. What each of them is doing shows in the [Crab crew pane](#crab-crew-pane).
 
 ## Meter
 
@@ -80,10 +80,12 @@ The meter comes in two forms, and `/crab-cam meter` hides it altogether:
 
 ![The Crab crew pane: two subagents and a workflow's three agents, each with a crab in its own colour acting out its work](assets/demo-pane.svg)
 
-The pane opens by itself when a new round of helpers starts: the first helper after all the earlier ones are through. That clears the cards of the round before. In the terminal it opens by itself only at 144 columns or wider; `/crab-cam crew` opens it at any width.
+While helpers are at work, the crew stands beside the crab in the band: a small crab for each, in its card's colour, bobbing while it works and still with a tick once it is done. Past three, the band says how many more. While the pane is closed, a **Watch crew ↗** button beside them opens it. `/crab-cam crew` opens or closes it too. A new round of helpers, the first after all the earlier ones are through and their workflows have ended, clears the cards of the round before.
+
+To have the pane open by itself as each new round starts, run `/crab-cam crew auto`. In the terminal it then opens by itself only at 144 columns or wider.
 
 - **Groups**: subagents under one heading, a workflow's agents under another, named after the workflows running. Each heading says how many are still running and folds when you click it.
-- **Crab**: each helper has its own colour, starting with Claude's orange, and acts out its own scene. Past seven helpers in one round, the colours repeat. The terminal draws the crab in block glyphs, as the band does.
+- **Crab**: each helper has its own colour, starting with green, and acts out its own scene. Orange stays Claude's own. Past six helpers in one round, the colours repeat. The terminal draws the crab in block glyphs, as the band does.
 - **Title**: the task a subagent was given. A workflow's agents are given no task, so they go by their type and a number, such as `Explore 2`.
 - **Details**: the agent's type and how long it has been at work, then what it is doing now and what about, such as `Running tests · claude plugin test`. A workflow's agent leaves the type out, as its title names it.
 - **Model and tokens**: on two pills once there is a reading, such as `Haiku 5.5` and `3.8k tokens`. The terminal has no fills, so there they join the details.

@@ -1,26 +1,49 @@
-import type { Activity, Crew, CrewGroup, CrewMember } from '../types'
+import type { Activity, Crew, CrewBand, CrewGroup, CrewMember } from '../types'
 import { DOING } from './activity'
 
-// The crew's body colours in the order they are handed out, Claude's orange
-// first; an eighth helper in one round starts over.
-export const CREW_COLOURS = ['#D97757', '#1D9E75', '#7F77DD', '#D4537E', '#378ADD', '#BA7517', '#639922'] as const
+// The crew's body colours in the order they are handed out; Claude's orange
+// is Claude's alone. A seventh helper in one round starts over.
+export const CREW_COLOURS = ['#1D9E75', '#7F77DD', '#D4537E', '#378ADD', '#BA7517', '#639922'] as const
 
 export const MAX_STEPS = 50
 
 export const NO_CREW: Crew = { members: [], workflows: [], now: 0 }
 
+export const NO_BAND: CrewBand = { since: 0, crabs: [] }
+
 export const colourOf = (member: CrewMember): string => CREW_COLOURS[member.seat % CREW_COLOURS.length] ?? CREW_COLOURS[0]
 
 export const isWorking = (crew: Crew): boolean => crew.members.some(member => member.phase === 'working')
 
+// What the band shows of a crew: each helper the pane shows, in its colour and
+// phase, and when the first of them began.
+export function bandOf(crew: Crew): CrewBand {
+  const shown = crew.members.filter(member => member.group !== null)
+
+  return shown.length === 0
+    ? NO_BAND
+    : {
+        since: Math.min(...shown.map(member => member.startedAt)),
+        crabs: shown.map(member => ({ colour: colourOf(member), phase: member.phase })),
+      }
+}
+
 // Takes a helper on, the first time it is heard of. One that comes while none
-// is at work starts a new round: the cards of the round before go.
-export function join(crew: Crew, id: string, now: number, upcoming: readonly string[]): { crew: Crew; isNewRound: boolean } {
+// is at work starts a new round: the cards of the round before go. A workflow
+// of the round still running keeps it going, as its agents may run one after
+// another.
+export function join(
+  crew: Crew,
+  id: string,
+  now: number,
+  upcoming: readonly string[],
+  running: readonly string[] = [],
+): { crew: Crew; isNewRound: boolean } {
   if (crew.members.some(member => member.id === id)) {
     return { crew, isNewRound: false }
   }
 
-  const isNewRound = !isWorking(crew)
+  const isNewRound = !isWorking(crew) && !crew.workflows.some(name => running.includes(name))
   const kept = isNewRound ? [] : crew.members
   const workflows = isNewRound ? [...upcoming] : crew.workflows
   const member: CrewMember = {
@@ -48,8 +71,18 @@ export function amend(crew: Crew, id: string, change: (member: CrewMember) => Cr
   return { ...crew, members: crew.members.map(member => (member.id === id ? change(member) : member)) }
 }
 
-// A call the helper made: the scene it is in now, and one more step.
+// The crew without one who turned out to be no one's helper.
+export function leave(crew: Crew, id: string): Crew {
+  return { ...crew, members: crew.members.filter(member => member.id !== id) }
+}
+
+// A call the helper made: the scene it is in now, and one more step. One
+// that is through stays as it ended.
 export function step(member: CrewMember, activity: Activity, detail: string, now: number): CrewMember {
+  if (member.phase !== 'working') {
+    return member
+  }
+
   return {
     ...member,
     activity,
