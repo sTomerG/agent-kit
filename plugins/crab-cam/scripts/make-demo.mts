@@ -6,7 +6,7 @@
 // crew. Run: npx tsx scripts/make-demo.mts
 import { mkdirSync, writeFileSync } from 'node:fs'
 
-import { SAMPLE_TURN_MS, colourOf, detailsOf, groupsOf, sampleCrew, sceneOfMember, sceneOf, titleOf, usageOf } from '../hooks/crew'
+import { SAMPLE_TURN_MS, colourOf, elapsedOf, groupsOf, pillsOf, sampleCrew, sceneOfMember, sceneOf, titleOf } from '../hooks/crew'
 import { meterLines, meterSvg, meterWidth } from '../hooks/meter'
 import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg } from '../hooks/scenes'
 
@@ -125,6 +125,8 @@ const PANE_WIDTH = 600
 const CARD_FILL = '#30302E'
 const CARD_EDGE = '#4A4945'
 const PILL_FILL = '#3D3D3A'
+const DONE = '#4EBA65'
+const FAILED = '#E5534B'
 
 // A subject cut to what fits beside its statement on a card.
 const clipped = (text: string, room: number) => (text.length > room ? `${text.slice(0, room - 1)}…` : text)
@@ -159,14 +161,20 @@ function paneDemo(): string {
             .replace(/^<svg /, `<svg x="${x}" y="${drawingY}" `)
             .replace(/ width="[\d.]+" height="[\d.]+"/, ` width="${width}" height="${SCENE_HEIGHT * CARD_SCALE}"`)
         const scene = sceneOfMember(member)
+        const time =
+          member.phase === 'done'
+            ? { glyph: '✓', colour: DONE }
+            : member.phase === 'failed'
+              ? { glyph: '✕', colour: FAILED }
+              : { glyph: '', colour: DIM }
         let pillX = textX
         let pills = ''
 
-        for (const part of usageOf(member)) {
+        for (const part of pillsOf(member)) {
           const width = textWidth(part, 11) + 14
           pills +=
-            `<rect x="${pillX}" y="${y + 76}" width="${width}" height="18" rx="5" fill="${PILL_FILL}"/>` +
-            `<text x="${pillX + 7}" y="${y + 89}" font-size="11" fill="${DIM}">${escape(part)}</text>`
+            `<rect x="${pillX}" y="${y + 66}" width="${width}" height="18" rx="5" fill="${PILL_FILL}"/>` +
+            `<text x="${pillX + 7}" y="${y + 79}" font-size="11" fill="${DIM}">${escape(part)}</text>`
           pillX += width + 6
         }
 
@@ -175,13 +183,13 @@ function paneDemo(): string {
           `stroke="${CARD_EDGE}" stroke-width="1"/>` +
           drawing(crabSvg(activity, colour, 10), PAD + 14, CRAB_WIDTH * CARD_SCALE) +
           drawing(propSvg(activity), PAD + 14 + CRAB_WIDTH * CARD_SCALE, PROP_WIDTH * CARD_SCALE) +
-          `<text x="${textX}" y="${y + 24}" font-size="14" font-weight="600" fill="${TEXT}">${escape(titleOf(member, crew.members))}</text>` +
-          `<text x="${textX}" y="${y + 44}" font-size="12" fill="${DIM}">${escape(detailsOf(member, crew.now))}</text>` +
-          `<text x="${textX}" y="${y + 64}" font-size="12" fill="${TEXT}">${escape(scene.verb)}` +
+          `<text x="${textX}" y="${y + 28}" font-size="14" font-weight="600" fill="${TEXT}">${escape(titleOf(member, crew.members))}</text>` +
+          `<text x="${PANE_WIDTH - PAD - 14}" y="${y + 28}" font-size="12" fill="${time.colour}" text-anchor="end">${time.glyph === '' ? '' : `${time.glyph} `}${elapsedOf(member, crew.now)}</text>` +
+          `<text x="${textX}" y="${y + 52}" font-size="12" fill="${TEXT}">${escape(scene.verb)}` +
           (scene.subject === '' ? '' : ` <tspan fill="${DIM}">· ${escape(clipped(scene.subject, 44 - scene.verb.length))}</tspan>`) +
           `</text>` +
           pills +
-          `<text x="${textX}" y="${y + 114}" font-size="11" fill="${DIM}">› Steps (${member.steps.length})</text>`
+          `<text x="${textX}" y="${y + 108}" font-size="11" fill="${DIM}">› Steps (${member.steps.length})</text>`
         y += CARD_HEIGHT + 10
       }
 
@@ -195,7 +203,7 @@ function paneDemo(): string {
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PANE_WIDTH} ${height}" width="${PANE_WIDTH}" height="${height}" ` +
-    `font-family="${SANS}" role="img" aria-label="The Crab crew pane: a card for each helper, with its own crab acting out its work">` +
+    `font-family="${SANS}" role="img" aria-label="The Crab crew pane: a card for each subagent, with its own crab acting out its work">` +
     `<rect width="${PANE_WIDTH}" height="${height}" rx="14" fill="#262624"/>` +
     `<rect x="0.5" y="0.5" width="${PANE_WIDTH - 1}" height="${height - 1}" rx="13.5" fill="none" stroke="#3D3D3A"/>` +
     frames.join('') +

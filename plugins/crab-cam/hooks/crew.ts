@@ -217,20 +217,17 @@ export function modelName(model: string): string {
   return match === null ? model.replace(/^claude-/, '') : `${capital(match[1] ?? '')} ${(match[2] ?? '').replaceAll('-', '.')}`
 }
 
-// The line under a card's title: its type and how long it has been at work.
-// A workflow's agent without a label is titled by its type already, so the
-// type is left out there.
-export function detailsOf(member: CrewMember, now: number): string {
+// What a card puts on its pills: its type, then its model and tokens once
+// there is a reading of them. A workflow's agent without a label is titled by
+// its type already, so the type is left out there.
+export function pillsOf(member: CrewMember): string[] {
   const isTitledByType = member.group === 'workflow' && member.about === null
 
-  return [isTitledByType ? null : member.type, elapsedOf(member, now)].filter(part => part !== null).join(' · ')
-}
-
-// Its model and tokens, once there is a reading of them.
-export function usageOf(member: CrewMember): string[] {
-  return [member.model === null ? null : modelName(member.model), member.tokens === null ? null : tokensText(member.tokens)].filter(
-    part => part !== null,
-  )
+  return [
+    isTitledByType ? null : member.type,
+    member.model === null ? null : modelName(member.model),
+    member.tokens === null ? null : tokensText(member.tokens),
+  ].filter(part => part !== null)
 }
 
 // The name a Workflow call gives its workflow: its `name`, or the name in the

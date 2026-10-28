@@ -77,7 +77,7 @@ const isRaw = atom({ plugin: 'crab-cam', key: 'isRaw' } as const, false)
 const crew = atom({ plugin: 'crab-cam', key: 'crew' } as const, NO_CREW)
 const demoCrew = atom({ plugin: 'crab-cam', key: 'demoCrew' } as const, null as Crew | null)
 const crewView = atom({ plugin: 'crab-cam', key: 'crewView' } as const, { open: [], folded: [] } as CrewView)
-// Whether the pane opens by itself when a new round of helpers starts.
+// Whether the pane opens by itself when a new round of subagents starts.
 const isCrewAuto = atom({ plugin: 'crab-cam', key: 'isCrewAuto' } as const, false)
 // The crew as the band shows it. The band reads this rather than the crew,
 // whose every tick would draw it again.
@@ -899,7 +899,7 @@ export const register: Register = on => {
 
       await $.ui.open({ id: PANE, title: PANE_TITLE })
 
-      return { text: 'The Crab crew pane is open: a card for every helper Claude puts to work.' }
+      return { text: 'The Crab crew pane is open: a card for every subagent Claude puts to work.' }
     }
 
     if (argument === 'crew auto') {
@@ -907,7 +907,7 @@ export const register: Register = on => {
 
       return {
         text: auto
-          ? 'The Crab crew pane now opens by itself when a new round of helpers starts.'
+          ? 'The Crab crew pane now opens by itself when a new round of subagents starts.'
           : 'The Crab crew pane no longer opens by itself. Watch crew in the band or /crab-cam crew opens it.',
       }
     }

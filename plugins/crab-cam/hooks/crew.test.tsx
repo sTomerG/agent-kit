@@ -191,7 +191,7 @@ test('a drawing drawn afresh goes on where it was rather than starting over', ()
   expect(crab.match(/<animate/g)?.length).toBe(crab.match(/begin="-/g)?.length)
 })
 
-test('a subagent gets a card with its task, and its type, time, model and tokens under it', async ($, on) => {
+test('a subagent gets a card with its task, its time beside it, and its type, model and tokens under it', async ($, on) => {
   const { clock } = session(on, [running('h1', 'Review the diff', 'Explore')])
   on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'h1' }))
 
@@ -211,13 +211,17 @@ test('a subagent gets a card with its task, and its type, time, model and tokens
     expect(texts).toContain('› Steps (1)')
   }
 
-  // The desktop puts the model and tokens on pills of their own; the terminal
-  // has no fills, and adds them to the details.
+  // Its time stands at the title's right, dim while it works. The
+  // desktop puts its type, model and tokens on pills of their own; the
+  // terminal has no fills, and puts them on a line of their own.
   const drawn = await paneTexts($)
-  expect(drawn).toContain('Explore · 0:05')
+  expect(drawn).toContain('0:05')
+  expect(drawn).toContain('Explore')
   expect(drawn).toContain('Haiku 5.5')
   expect(drawn).toContain('11.2k tokens')
-  expect(await paneTexts($, 'terminal')).toContain('Explore · 0:05 · Haiku 5.5 · 11.2k tokens')
+  const glyphs = await paneTexts($, 'terminal')
+  expect(glyphs).toContain('0:05')
+  expect(glyphs).toContain('Explore · Haiku 5.5 · 11.2k tokens')
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await ui.press({ key: 'steps-h1' })
@@ -227,8 +231,8 @@ test('a subagent gets a card with its task, and its type, time, model and tokens
   await helperEnds($, 'h1')
   await clock.advance(5000)
   const after = await paneTexts($)
+  expect(after).toContain('✓ 0:05')
   expect(after).toContain('Done')
-  expect(after).toContain('Explore · 0:05')
   expect(after).toContain('0 of 1 running')
 })
 
@@ -311,9 +315,9 @@ test("a workflow's agents share a group headed by its name, each by type and num
   expect(texts).toContain('2 of 2 running')
   expect(texts).toContain('Explore 1')
   expect(texts).toContain('Explore 2')
-  // Their titles name the type already.
+  // Their titles name the type already, so it gets no pill.
   expect(texts).toContain('0:00')
-  expect(texts).not.toContain('Explore · 0:00')
+  expect(texts).not.toContain('Explore')
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'group-workflow' })
@@ -329,7 +333,7 @@ test('crew opens the pane and closes it again', async ($, on) => {
 
   await crew()
   expect(opens).toEqual(['crab-crew'])
-  expect(await paneTexts($)).toContain('No crew yet. A card shows up here for every helper Claude puts to work.')
+  expect(await paneTexts($)).toContain('No crew yet. A card shows up here for every subagent Claude puts to work.')
 
   await crew()
   expect(closes).toEqual(['crab-crew'])
@@ -346,7 +350,7 @@ test('the demo fills the pane with a sample crew, and closes the pane after', as
 
   await clock.advance(120_000)
   expect(closes).toEqual(['crab-crew'])
-  expect(await paneTexts($)).toContain('No crew yet. A card shows up here for every helper Claude puts to work.')
+  expect(await paneTexts($)).toContain('No crew yet. A card shows up here for every subagent Claude puts to work.')
 })
 
 test('a helper whose end is never heard is through once the engine lists it so, and the next helper starts a new round', async ($, on) => {
@@ -451,6 +455,7 @@ test('a helper that ends without an answer shows it stopped before it finished',
 
   const texts = await paneTexts($)
   expect(texts).toContain('Stopped before it finished')
+  expect(texts.some(text => text.startsWith('✕ '))).toBe(true)
   expect(texts).toContain('0 of 1 running')
 })
 
@@ -486,7 +491,8 @@ test("a workflow's agents spawned under labels go by them, in the workflow's gro
   expect(texts).not.toContain('⌄ Subagents')
   expect(texts).toContain('meter colours')
   expect(texts).toContain('demo assets')
-  expect(texts).toContain('Explore · 0:00')
+  expect(texts).toContain('Explore')
+  expect(texts).toContain('0:00')
   expect(texts).toContain('1 of 2 running')
 })
 

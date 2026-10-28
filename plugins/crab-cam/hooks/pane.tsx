@@ -2,7 +2,7 @@ import type { Elements, RenderSurface } from 'claude-code'
 
 import type { Crew, CrewMember, CrewView } from '../types'
 import type { CrewGroupView } from './crew'
-import { colourOf, detailsOf, groupsOf, sceneLine, sceneOf, sceneOfMember, titleOf, usageOf } from './crew'
+import { colourOf, elapsedOf, groupsOf, pillsOf, sceneLine, sceneOf, sceneOfMember, titleOf } from './crew'
 import { CRAB_WIDTH, PROP_WIDTH, SCENE_HEIGHT, crabSvg, propSvg, resumed, sceneRows } from './scenes'
 
 export const PANE = 'crab-crew'
@@ -14,11 +14,12 @@ const CARD_SCALE = 0.75
 const CARD_LIFT = 10
 
 // A drawn card is calm: a light fill and a faint edge, the helper's colour in
-// its crab alone, and its model and tokens on pills a shade darker. Theme
-// colours, so light and dark themes each get their own.
+// its crab and its working mark alone. Theme colours, so light and dark themes
+// each get their own. The pills are a see-through grey instead: no theme
+// colour stands out from the card's fill in both.
 const CARD_FILL = 'userMessageBackgroundHover'
 const CARD_EDGE = 'subtle'
-const PILL_FILL = 'userMessageBackground'
+const PILL_FILL = 'rgba(128, 128, 128, 0.16)'
 
 type Table = Elements['terminal'] | Elements['desktop'] | Elements['vscode'] | Elements['mobile']
 
@@ -102,16 +103,25 @@ function crabOf(table: Table, surface: RenderSurface, member: CrewMember, tick: 
   )
 }
 
+// How long a helper has been at work, at its title's right: dim while it
+// works, behind a tick or a cross once it ends.
+function timeOf(table: Table, member: CrewMember, now: number) {
+  const { Text } = table
+  const time = elapsedOf(member, now)
+  if (member.phase === 'done') return <Text color="success">{`✓ ${time}`}</Text>
+  if (member.phase === 'failed') return <Text color="error">{`✕ ${time}`}</Text>
+  return <Text dimColor>{time}</Text>
+}
+
 function card(table: Table, surface: RenderSurface, member: CrewMember, crew: Crew, view: CrewView, tick: number, now: number) {
   const { Box, Button, Text } = table
   const isFilled = isDrawn(surface)
   const scene = sceneOfMember(member)
   const isOpen = view.open.includes(member.id)
   const count = member.steps.length
-  const usage = usageOf(member)
-  // The terminal has no fills to draw pills with: there the model and tokens
-  // join the details, and the edge keeps the helper's colour while it works.
-  const details = isFilled ? detailsOf(member, crew.now) : [detailsOf(member, crew.now), ...usage].join(' · ')
+  const pills = pillsOf(member)
+  // The terminal has no fills to draw pills with: there the type, model and
+  // tokens go on a dim line, and the edge keeps the helper's colour while it works.
   const edge = isFilled ? CARD_EDGE : member.phase === 'working' ? colourOf(member) : 'gray'
 
   return (
@@ -127,12 +137,14 @@ function card(table: Table, surface: RenderSurface, member: CrewMember, crew: Cr
       <Box flexDirection="row" alignItems="center" gap={2} width="100%">
         {crabOf(table, surface, member, tick, now)}
         <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
-          <Text bold wrap="truncate-end">
-            {titleOf(member, crew.members)}
-          </Text>
-          <Text dimColor wrap="truncate-end">
-            {details}
-          </Text>
+          <Box flexDirection="row" justifyContent="space-between" gap={1} width="100%">
+            <Box flexShrink={1} minWidth={0}>
+              <Text bold wrap="truncate-end">
+                {titleOf(member, crew.members)}
+              </Text>
+            </Box>
+            <Box flexShrink={0}>{timeOf(table, member, crew.now)}</Box>
+          </Box>
           <Box flexDirection="row" gap={1} width="100%">
             <Box flexShrink={0}>
               <Text>{scene.verb}</Text>
@@ -145,16 +157,19 @@ function card(table: Table, surface: RenderSurface, member: CrewMember, crew: Cr
               </Box>
             )}
           </Box>
-          {isFilled && usage.length > 0 && (
+          {isFilled && pills.length > 0 && (
             <Box flexDirection="row" gap={1}>
-              {usage.map(part => (
+              {pills.map(part => (
                 <Box key={`pill-${member.id}-${part}`} backgroundColor={PILL_FILL} paddingX={1} flexShrink={0}>
-                  <Text dimColor backgroundColor={PILL_FILL}>
-                    {part}
-                  </Text>
+                  <Text dimColor>{part}</Text>
                 </Box>
               ))}
             </Box>
+          )}
+          {!isFilled && pills.length > 0 && (
+            <Text dimColor wrap="truncate-end">
+              {pills.join(' · ')}
+            </Text>
           )}
           {count > 0 && (
             <Button key={stepsKey(member.id)} plain dimColor onPress={() => undefined}>
@@ -205,7 +220,7 @@ export function crewTree(table: Table, surface: RenderSurface, crew: Crew, view:
   if (groups.length === 0) {
     return (
       <Box flexDirection="column" width="100%">
-        <Text dimColor>No crew yet. A card shows up here for every helper Claude puts to work.</Text>
+        <Text dimColor>No crew yet. A card shows up here for every subagent Claude puts to work.</Text>
       </Box>
     )
   }

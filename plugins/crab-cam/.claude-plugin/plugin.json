@@ -1,7 +1,7 @@
 {
   "name": "crab-cam",
   "version": "0.4.0",
-  "description": "A crab above the prompt acts out what Claude is doing: reading, writing code, thinking, searching and more. A shell beside it shows context and rate-limit usage, and the Crab crew pane gives every helper a crab of its own.",
+  "description": "A crab above the prompt acts out what Claude is doing: reading, writing code, thinking, searching and more. A shell beside it shows context and rate-limit usage, and the Crab crew pane gives every subagent a crab of its own.",
   "author": {
     "name": "Tomer Gabay",
     "url": "https://github.com/sTomerG"

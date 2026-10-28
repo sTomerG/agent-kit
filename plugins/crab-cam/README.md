@@ -1,6 +1,6 @@
 # crab-cam
 
-A Claude Code mod: a small crab above the prompt acts out what Claude is doing, in the terminal, the desktop app and VS Code. Beside it, a shell shows how full the context window is and how much of your rate limits is used. When Claude puts helpers to work, the Crab crew pane gives each one a crab of its own.
+A Claude Code mod: a small crab above the prompt acts out what Claude is doing, in the terminal, the desktop app and VS Code. Beside it, a shell shows how full the context window is and how much of your rate limits is used. When Claude puts subagents to work, the Crab crew pane gives each one a crab of its own.
 
 > Optimised for the Claude Code desktop app.
 
@@ -58,7 +58,7 @@ The scene follows the tool Claude calls. A shell command is read for what it doe
 | oops | a tool call failed, or an API error or refusal ended the turn |
 | done, resting | the turn ended |
 
-The crab stays on "Claude has a crew at work" until the helpers return. What each of them is doing shows in the [Crab crew pane](#crab-crew-pane).
+The crab stays on "Claude has a crew at work" until its subagents return. What each of them is doing shows in the [Crab crew pane](#crab-crew-pane).
 
 ## Meter
 
@@ -80,15 +80,16 @@ The meter comes in two forms, and `/crab-cam meter` hides it altogether:
 
 ![The Crab crew pane: two subagents and a workflow's three agents, each with a crab in its own colour acting out its work](assets/demo-pane.svg)
 
-While helpers are at work, the crew stands beside the crab in the band: a small crab for each, in its card's colour, bobbing while it works and still with a tick once it is done. Past three, the band says how many more. While the pane is closed, a **Watch crew ↗** button beside them opens it. `/crab-cam crew` opens or closes it too. A new round of helpers, the first after all the earlier ones are through and their workflows have ended, clears the cards of the round before.
+While subagents are at work, the crew stands beside the crab in the band: a small crab for each, in its card's colour, bobbing while it works and still with a tick once it is done. Past three, the band says how many more. While the pane is closed, a **Watch crew ↗** button beside them opens it. `/crab-cam crew` opens or closes it too. A new round of subagents, the first after all the earlier ones are through and their workflows have ended, clears the cards of the round before.
 
 To have the pane open by itself as each new round starts, run `/crab-cam crew auto`. In the terminal it then opens by itself only at 144 columns or wider.
 
 - **Groups**: subagents under one heading, a workflow's agents under another, named after the workflows running. Each heading says how many are still running and folds when you click it.
-- **Crab**: each helper has its own colour, starting with green, and acts out its own scene. Orange stays Claude's own. Past six helpers in one round, the colours repeat. The terminal draws the crab in block glyphs, as the band does.
+- **Crab**: each subagent has its own colour, starting with green, and acts out its own scene. Orange stays Claude's own. Past six subagents in one round, the colours repeat. The terminal draws the crab in block glyphs, as the band does.
 - **Title**: the task a subagent was given, or the label a workflow gave its agent. A workflow's agent without a label goes by its type and a number, such as `Explore 2`.
-- **Details**: the agent's type and how long it has been at work, then what it is doing now and what about, such as `Running tests · claude plugin test`. An agent titled by its type leaves the type out here.
-- **Model and tokens**: on two pills once there is a reading, such as `Haiku 5.5` and `3.8k tokens`. The terminal has no fills, so there they join the details.
+- **Time**: how long it has been at work, at the title's right, behind a tick when done or a cross when it failed.
+- **Scene line**: under the title, what it is doing now and what about, such as `Running tests · claude plugin test`.
+- **Pills**: the agent's type, then its model and tokens once there is a reading, such as `Explore`, `Haiku 5.5` and `3.8k tokens`. An agent titled by its type gets no type pill. The terminal has no fills, so there they go on a line of their own.
 - **Steps**: click Steps to unfold its last 50 steps, such as `Read · register.tsx` or `Ran tests · claude plugin test`.
 - **When it ends**: the crab shows done or oops, and the card stays until the next round.
 
