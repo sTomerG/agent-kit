@@ -87,9 +87,6 @@ declare module 'claude-code' {
       // The demo's sample crew, drawn instead of the real one while it plays.
       demoCrew: Crew | null
       crewView: CrewView
-      // The crew as the band shows it, apart from the crew so that the band is
-      // drawn again only when a helper joins or ends, not on every tick.
-      crewBand: CrewBand
     }
   }
 }

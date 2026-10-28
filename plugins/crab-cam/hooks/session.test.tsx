@@ -228,6 +228,51 @@ test('briefs for two subagents are counted, and the crew is at work once one of 
   expect(await says($, /running a crew/)).toBe(true)
 })
 
+test("a brief's call run while the next is written keeps Claude briefing its crew", async ($, on) => {
+  const clock = session(on)
+  on('tool.call', { tool: 'Agent' }, () => ({ result: 'ok' }))
+  const goOn = writes(on, [
+    { name: 'Agent', json: '{"description": "Build hook 1", ' },
+    { name: 'Agent', json: '{"description": "Build hook 2", ' },
+  ])
+
+  await $.turn.start({ text: 'build both hooks', turnId: 't1' })
+  const step = respond($)
+  await clock.advance(0)
+  goOn()
+  await clock.advance(0)
+  // The first call runs while the second is still being written.
+  await $.tool.call({ tool: 'Agent', tool_use_id: 'c0', description: 'Build hook 1', prompt: 'x' })
+  await clock.advance(500)
+  expect(await says($, /briefing its crew/)).toBe(true)
+
+  goOn()
+  await step
+})
+
+test('a brief written after one of its crew started leaves the crab with the crew', async ($, on) => {
+  const clock = session(on)
+  on('classic.SubagentStart', () => ({}))
+  on('agent.list', () => ({ value: [] }))
+  const goOn = writes(on, [
+    { name: 'Agent', json: '{"description": "Build hook 1", ' },
+    { name: 'Agent', json: '{"description": "Build hook 2", ' },
+  ])
+
+  await $.turn.start({ text: 'build both hooks', turnId: 't1' })
+  const step = respond($)
+  await clock.advance(0)
+  // The first call starts while the second is still being written.
+  await $.classic.SubagentStart({ agent_id: 'h1', agent_type: 'general-purpose' })
+  await clock.advance(3000)
+  goOn()
+  await clock.advance(0)
+  expect(await says($, /running a crew/)).toBe(true)
+
+  goOn()
+  await step
+})
+
 test('the page of an artifact is designed, in the turn a design skill was loaded in', async ($, on) => {
   const clock = session(on)
   on('tool.call', { tool: 'Skill' }, () => ({ result: 'ok' }))

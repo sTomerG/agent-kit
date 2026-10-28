@@ -287,6 +287,21 @@ test('while a crew works, the band offers to watch it until the pane is open', a
   expect(await watch('desktop')).toBeUndefined()
 })
 
+test("the band is drawn again on the crew's every tick, its drawings as far in as they have run", async ($, on) => {
+  const { clock } = session(on, [running('h1', 'Review the diff', 'Explore')])
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'h1' }))
+
+  await $.turn.start({ text: 'review it', turnId: 't1' })
+  await spawn($, 'Review the diff', 'Explore')
+  await clock.advance(0)
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const crabAt = async () => String((await band.find({ type: 'Svg', alt: 'The Claude crab' }))?.props.source)
+  const before = await crabAt()
+  await clock.advance(2000)
+  expect(await crabAt()).not.toBe(before)
+  await band.unmount()
+})
+
 test("a workflow's agents share a group headed by its name, each by type and number", async ($, on) => {
   const { clock } = session(on)
 
@@ -342,6 +357,19 @@ test('the demo brings on a sample crew near its end, which opens the pane, and c
   expect(texts).toContain('3 of 3 running')
 
   await clock.advance(120_000)
+  expect(closes).toEqual(['crab-crew'])
+  expect(await paneTexts($)).toContain('No crew yet. A card shows up here for every subagent Claude puts to work.')
+})
+
+test("a demo started again during its crew takes that crew off, and closes the pane it opened", async ($, on) => {
+  const { clock, closes } = session(on)
+
+  await command($, 'demo')
+  await clock.advance(72_000)
+  expect(await paneTexts($)).toContain('Review the diff')
+
+  await command($, 'demo')
+  await clock.advance(0)
   expect(closes).toEqual(['crab-crew'])
   expect(await paneTexts($)).toContain('No crew yet. A card shows up here for every subagent Claude puts to work.')
 })

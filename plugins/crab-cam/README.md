@@ -43,7 +43,7 @@ The scene follows the tool Claude calls. A shell command is read for what it doe
 | running tests | `pytest`, `vitest`, `jest`, `npm test`, `cargo test` and the like |
 | working with git | `git` and `gh`, also further on in a chain such as `make build && git status` |
 | installing packages | `npm install`, `pip install`, `uv add`, `brew install` and the like |
-| briefing its crew | while Claude writes the calls that start subagents or a workflow, before any of them has started; the line under it says what the one subagent is for, or how many there are, such as `briefing 3 subagents` |
+| briefing its crew | while Claude writes the calls that start subagents or a workflow, before any of them has started; the line under it says what the one subagent is for, or how many there are, such as `briefing 3 subagents`; a workflow alone gets no line |
 | running a crew | subagents and workflows, during the turn and while they run on after it; the line under it says how many are at work and what they are doing, such as `crew of 3: 2 reading, 1 running tests` |
 | making a plan | plan mode and task lists |
 | loading a skill | `Skill` |
