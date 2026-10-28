@@ -551,3 +551,33 @@ test('a workflow called by its saved script keeps its round, and takes its name 
   expect(texts).toContain('demo assets')
   expect(texts).toContain('1 of 2 running')
 })
+
+test('the terminal band draws three of the crew in their colours, with a tick or a mark, then how many more', async ($, on) => {
+  const ids = ['h1', 'h2', 'h3', 'h4', 'h5']
+  const { clock } = session(
+    on,
+    ids.map(id => running(id, `Task ${id}`, 'Explore')),
+  )
+  let next = 'h1'
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: next }))
+
+  await $.turn.start({ text: 'fan out', turnId: 't1' })
+
+  for (const id of ids) {
+    next = id
+    await spawn($, `Task ${id}`, 'Explore')
+  }
+
+  await helperEnds($, 'h1')
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 'h2', reason: 'answer', agentId: 'h2' })
+  await clock.advance(0)
+
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const texts = await band.findAll({ type: 'Text' })
+  await band.unmount()
+  const glyphs = texts.filter(found => found.text === CREW_GLYPH)
+  expect(glyphs.map(found => found.props.color)).toEqual([CREW_COLOURS[0], CREW_COLOURS[1], CREW_COLOURS[2]])
+  expect(texts.find(found => found.text === '✓')?.props.color).toBe('success')
+  expect(texts.find(found => found.text === '!')?.props.color).toBe('error')
+  expect(texts.map(found => found.text)).toContain('+2')
+})

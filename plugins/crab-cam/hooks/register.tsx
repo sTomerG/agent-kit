@@ -759,6 +759,21 @@ function terminalTree(
   const { Box, Button, Text } = table
   const { activity, detail } = shown
   const rows = sceneRows(activity, tick)
+  // The crew stands over the meter, on the line it leaves free, with Watch
+  // crew under it: a column of its own beside the meter would cut the scene's
+  // words short in a terminal of everyday width.
+  const crew = watch.band === undefined ? undefined : (
+    <Box flexDirection="row" gap={1}>
+      {watch.band.crabs.slice(0, BAND_CREW).map(({ colour, phase }) => (
+        <Box flexDirection="row">
+          <Text color={colour}>{CREW_GLYPH}</Text>
+          {phase === 'done' && <Text color="success">✓</Text>}
+          {phase === 'failed' && <Text color="error">!</Text>}
+        </Box>
+      ))}
+      {watch.band.crabs.length > BAND_CREW && <Text dimColor>{`+${watch.band.crabs.length - BAND_CREW}`}</Text>}
+    </Box>
+  )
 
   return (
     <Box flexDirection="row" gap={2} width="100%">
@@ -777,31 +792,15 @@ function terminalTree(
         </Text>
         {detailLine(table, detail)}
       </Box>
-      {watch.band !== undefined && (
+      {(watch.band !== undefined || gauged !== undefined) && (
         <Box flexDirection="column" flexShrink={0}>
-          <Box flexDirection="row" gap={1}>
-            {watch.band.crabs.slice(0, BAND_CREW).map(({ colour, phase }) => (
-              <Box flexDirection="row">
-                <Text color={colour}>{CREW_GLYPH}</Text>
-                {phase === 'done' && <Text color="success">✓</Text>}
-                {phase === 'failed' && <Text color="error">!</Text>}
-              </Box>
-            ))}
-            {watch.band.crabs.length > BAND_CREW && <Text dimColor>{`+${watch.band.crabs.length - BAND_CREW}`}</Text>}
-          </Box>
-          {watch.isOffered ? (
+          {crew === undefined ? <Text> </Text> : crew}
+          {gauged !== undefined && <Text color="claude">{meterRow(gauged)}</Text>}
+          {watch.isOffered && (
             <Button key={WATCH} onPress={() => undefined}>
               {WATCH_LABEL}
             </Button>
-          ) : (
-            <Text> </Text>
           )}
-        </Box>
-      )}
-      {gauged !== undefined && (
-        <Box flexDirection="column" flexShrink={0}>
-          <Text> </Text>
-          <Text color="claude">{meterRow(gauged)}</Text>
         </Box>
       )}
       {gauged !== undefined && detailed && readings(table, gauged)}
@@ -1230,7 +1229,9 @@ export const register: Register = on => {
     // Nothing of the turn shows once it is over.
     flush()
 
-    if (e.isAborted) {
+    // With helpers still at work the turn is not done: the crab stays on
+    // them until they return.
+    if (e.isAborted || helpers.size > 0) {
       settle($)
     } else {
       // A refusal or an API error ended the turn too, but nothing is done.

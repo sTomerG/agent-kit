@@ -292,6 +292,10 @@ test('a helper that outlives its turn keeps the crab at it until it is through',
     background_tasks: [{ id: 'h1', type: 'subagent', status: 'running', description: 'Look into it' }],
   })
   await $.turn.complete({ answer: 'Started.', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
+  await clock.advance(1500)
+  expect(await says($, /Done!/)).toBe(false)
+  expect(await says($, /has a crew at work/)).toBe(true)
+
   await clock.advance(9000)
   expect(await says($, /^crew of 1: searching$/)).toBe(true)
 
