@@ -107,6 +107,7 @@ const DID: Record<Activity, string> = {
   terminal: 'Ran a command',
   searching: 'Searched',
   web: 'Browsed',
+  briefing: 'Briefed a crew',
   delegating: 'Delegated',
   talking: 'Replied',
   asking: 'Asked',

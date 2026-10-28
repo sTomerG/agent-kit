@@ -87,6 +87,29 @@ test('a turn an API error ended is not done', async ($, on) => {
   expect(await says($, /went wrong/)).toBe(true)
 })
 
+test("the band's drawings go on where they were when drawn again, from when the scene began", async ($, on) => {
+  const clock = session(on)
+  let finish = (): void => undefined
+  on('tool.call', { tool: 'Read' }, () => new Promise(resolve => (finish = () => resolve({ result: 'ok' }))))
+
+  await $.turn.start({ text: 'read it', turnId: 't1' })
+  const read = $.tool.call({ tool: 'Read', tool_use_id: 'r', file_path: '/repo/notes.md' })
+  await clock.advance(0)
+  const crabAt = async () => {
+    const ui = await $.ui.mount(BAND)
+    const crab = await ui.find({ type: 'Svg', alt: 'The Claude crab' })
+    await ui.unmount()
+
+    return String(crab?.props.source)
+  }
+  expect(await crabAt()).toContain('begin="0s"')
+  await clock.advance(2500)
+  expect(await crabAt()).toContain('begin="-2.5s"')
+
+  finish()
+  await read
+})
+
 test('a long call keeps the crab once a short one beside it returns', async ($, on) => {
   const clock = session(on)
   let finish = (): void => undefined
@@ -98,7 +121,7 @@ test('a long call keeps the crab once a short one beside it returns', async ($, 
   await clock.advance(0)
   await $.tool.call({ tool: 'Read', tool_use_id: 'r', file_path: '/repo/notes.md' })
   await clock.advance(3000)
-  expect(await says($, /has a crew at work/)).toBe(true)
+  expect(await says($, /running a crew/)).toBe(true)
 
   finish()
   await helper
@@ -142,6 +165,67 @@ test('a long command shows its scene while it is still being written', async ($,
 
   finish()
   await step
+})
+
+// A turn whose response writes these calls, holding on each block until let go.
+function writes(on: On, blocks: readonly { name: string; json: string }[]): () => void {
+  const gates: (() => void)[] = []
+  on('turn.step', async function* (_, e) {
+    for (const [index, { name, json }] of blocks.entries()) {
+      yield { kind: 'tool', index, id: `c${index}`, name }
+      yield { kind: 'input', index, json }
+      await new Promise<void>(resolve => gates.push(resolve))
+    }
+
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use', usage: null }
+  })
+
+  return () => gates.shift()?.()
+}
+
+async function respond($: Engine): Promise<void> {
+  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'm', messageCount: 1 })) {
+    // The chunks reach the mod on their way here.
+  }
+}
+
+test("a subagent's brief being written shows Claude briefing its crew, by the task", async ($, on) => {
+  const clock = session(on)
+  const goOn = writes(on, [{ name: 'Agent', json: '{"description": "Build hook 1", "prompt": "Draw the' }])
+
+  await $.turn.start({ text: 'build the hook', turnId: 't1' })
+  const step = respond($)
+  await clock.advance(0)
+  const ui = await $.ui.mount(BAND)
+  expect(await ui.find({ type: 'Text', text: /briefing its crew/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Build hook 1$/ })).toBeDefined()
+  await ui.unmount()
+
+  goOn()
+  await step
+})
+
+test('briefs for two subagents are counted, and the crew is at work once one of them starts', async ($, on) => {
+  const clock = session(on)
+  on('classic.SubagentStart', () => ({}))
+  on('agent.list', () => ({ value: [] }))
+  const goOn = writes(on, [
+    { name: 'Agent', json: '{"description": "Build hook 1", ' },
+    { name: 'Agent', json: '{"description": "Build hook 2", ' },
+  ])
+
+  await $.turn.start({ text: 'build both hooks', turnId: 't1' })
+  const step = respond($)
+  await clock.advance(0)
+  goOn()
+  await clock.advance(0)
+  expect(await says($, /^briefing 2 subagents$/)).toBe(true)
+
+  goOn()
+  await step
+  await $.classic.SubagentStart({ agent_id: 'h1', agent_type: 'general-purpose' })
+  await clock.advance(3000)
+  expect(await says($, /running a crew/)).toBe(true)
 })
 
 test('the page of an artifact is designed, in the turn a design skill was loaded in', async ($, on) => {
@@ -267,7 +351,7 @@ test('the crew at work shows as how many there are and what they are doing', asy
   await $.tool.call({ tool: 'Read', tool_use_id: 'r', file_path: '/repo/a.ts', agentId: 'h1' })
   await $.tool.call({ tool: 'Bash', tool_use_id: 'b', command: 'npm test', agentId: 'h2' })
   await clock.advance(1500)
-  expect(await says($, /has a crew at work/)).toBe(true)
+  expect(await says($, /running a crew/)).toBe(true)
   expect(await says($, /^crew of 2: 1 reading, 1 running tests$/)).toBe(true)
 
   await $.tool.call({ tool: 'SubagentHandback', tool_use_id: 's', agentId: 'h1' })
@@ -294,7 +378,7 @@ test('a helper that outlives its turn keeps the crab at it until it is through',
   await $.turn.complete({ answer: 'Started.', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
   await clock.advance(1500)
   expect(await says($, /Done!/)).toBe(false)
-  expect(await says($, /has a crew at work/)).toBe(true)
+  expect(await says($, /running a crew/)).toBe(true)
 
   await clock.advance(9000)
   expect(await says($, /^crew of 1: searching$/)).toBe(true)

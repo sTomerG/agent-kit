@@ -240,6 +240,30 @@ export function isToldByArgs(tool: string): boolean {
   return isShell(tool) || tool in TELLING
 }
 
+// The calls that start a crew, whose arguments are its brief: a subagent's
+// prompt, a workflow's script. Writing one takes seconds, and the crew starts
+// only once every call of the response is written.
+const BRIEFS = new Set(['Agent', 'Task', 'Workflow'])
+const SUBAGENTS = new Set(['Agent', 'Task'])
+
+export function isBrief(tool: string): boolean {
+  return BRIEFS.has(tool)
+}
+
+// What a crew is being briefed for, by the briefs being written: how many
+// subagents, or the one's task once its description is in.
+export function briefLine(briefs: readonly { tool: string; json: string }[]): string {
+  const subagents = briefs.filter(brief => SUBAGENTS.has(brief.tool))
+
+  const [only] = subagents
+
+  if (subagents.length > 1) {
+    return `briefing ${subagents.length} subagents`
+  }
+
+  return only === undefined ? '' : (whole(only.json, 'description') ?? '')
+}
+
 // Which scene a call is: by the tool, and for a command or a file by what it
 // is about (`args` absent while the call's arguments are still streaming).
 // `isDesigning` says the turn has taken up design work, which makes a page
@@ -329,6 +353,7 @@ export const DOING: Record<Activity, string> = {
   terminal: 'running commands',
   searching: 'searching',
   web: 'browsing',
+  briefing: 'briefing',
   delegating: 'delegating',
   talking: 'replying',
   asking: 'asking',

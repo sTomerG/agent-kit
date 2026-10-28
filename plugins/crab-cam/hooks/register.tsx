@@ -6,7 +6,9 @@ import type { Helper, Lingering } from './activity'
 import {
   activityOf,
   activityOfStreaming,
+  briefLine,
   helpersLine,
+  isBrief,
   isHandback,
   isToldByArgs,
   opensDesign,
@@ -36,6 +38,8 @@ const MAX_HELD = 3
 // shorter, and the work then reads as one stretch of reading or searching.
 const THINK_AFTER_MS = 5000
 const DEMO_MS = 3000
+// The demo's crew at work, near its end, is held long enough to watch it in the pane.
+const DEMO_CREW_MS = 12_000
 // How often the elapsed times on the crew's cards move on.
 const CREW_CLOCK_MS = 1000
 const DEMO_DETAIL = 'demo'
@@ -51,7 +55,6 @@ const DEMO: readonly Activity[] = [
   'installing',
   'searching',
   'web',
-  'delegating',
   'planning',
   'skill',
   'memory',
@@ -63,6 +66,8 @@ const DEMO: readonly Activity[] = [
   'compacting',
   'talking',
   'asking',
+  'briefing',
+  'delegating',
   'done',
 ]
 
@@ -77,8 +82,6 @@ const isRaw = atom({ plugin: 'crab-cam', key: 'isRaw' } as const, false)
 const crew = atom({ plugin: 'crab-cam', key: 'crew' } as const, NO_CREW)
 const demoCrew = atom({ plugin: 'crab-cam', key: 'demoCrew' } as const, null as Crew | null)
 const crewView = atom({ plugin: 'crab-cam', key: 'crewView' } as const, { open: [], folded: [] } as CrewView)
-// Whether the pane opens by itself when a new round of subagents starts.
-const isCrewAuto = atom({ plugin: 'crab-cam', key: 'isCrewAuto' } as const, false)
 // The crew as the band shows it. The band reads this rather than the crew,
 // whose every tick would draw it again.
 const crewBand = atom({ plugin: 'crab-cam', key: 'crewBand' } as const, NO_BAND)
@@ -88,8 +91,9 @@ const WATCH = 'watch-crew'
 const WATCH_LABEL = 'Watch crew ↗'
 
 // What the band draws of the crew: its crabs while one is at work, whether to
-// offer the pane, and the time the crabs are drawn at.
-type Watch = { band: CrewBand | undefined; isOffered: boolean; now: number }
+// offer the pane, the time the band's drawings are drawn at, and when its
+// scene was first drawn.
+type Watch = { band: CrewBand | undefined; isOffered: boolean; now: number; since: number }
 
 const LABELS: Record<Activity, string> = {
   idle: 'Claude is resting',
@@ -101,7 +105,8 @@ const LABELS: Record<Activity, string> = {
   terminal: 'Claude is running a command',
   searching: 'Claude is searching',
   web: 'Claude is browsing the web',
-  delegating: 'Claude has a crew at work',
+  briefing: 'Claude is briefing its crew',
+  delegating: 'Claude is running a crew',
   talking: 'Claude is writing a reply',
   asking: 'Claude has a question for you',
   planning: 'Claude is making a plan',
@@ -172,6 +177,9 @@ type Painted = { activity: Activity; detail: string; hold: number }
 type Call = { tool: string; activity: Activity; detail: string }
 
 let isWorking = false
+// The helpers at work when the crew was last briefed: one not among them
+// started from the brief, and the crab moves on from briefing to the crew.
+let briefedBefore = new Set<string>()
 // Whether the conversation is being compacted: the crab tidies up until it is
 // through, whatever comes and goes meanwhile.
 let isCompacting = false
@@ -220,6 +228,9 @@ let crewClock: Timer | undefined
 let upcoming: readonly string[] = []
 // The scene on screen, the hold it is under, and what came in meanwhile.
 let current: Painted | undefined
+// The scene the band last drew, and when it first drew it: its drawings are
+// drawn as far along as they have been on screen.
+let drawn: { activity: Activity; at: number } | undefined
 let busy: Timer | undefined
 let held: Painted[] = []
 let trailing: Painted | undefined
@@ -409,6 +420,10 @@ function drawHelpers($: EngineInterface): void {
     if (rest === undefined) {
       settle($)
     }
+  } else if (current?.activity === 'briefing') {
+    if ([...helpers.keys()].some(id => !briefedBefore.has(id))) {
+      show($, 'delegating')
+    }
   } else if (current?.activity === 'delegating') {
     if (helpers.size > 0) {
       show($, 'delegating')
@@ -549,19 +564,17 @@ async function sortMember($: EngineInterface, id: string): Promise<void> {
 }
 
 // Takes a helper on in the pane the first time it is heard of. The first of a
-// new round clears the cards of the last, and opens the pane where that is on.
+// new round clears the cards of the last.
 function enlist($: EngineInterface, id: string): void {
   if (enlisted.has(id)) {
     return
   }
 
   enlisted.add(id)
-  let isNewRound = false
   void changeCrew($, (before, now) => {
     const joined = join(before, id, now, upcoming, goesOn(before))
-    isNewRound = joined.isNewRound
 
-    if (isNewRound) {
+    if (joined.isNewRound) {
       upcoming = []
       isRunCalled = false
     }
@@ -574,11 +587,6 @@ function enlist($: EngineInterface, id: string): void {
     }
 
     startCrewClock($)
-
-    if (isNewRound && demo === undefined && (await read($, isCrewAuto))) {
-      await $.ui.open({ id: PANE, title: PANE_TITLE }).catch(() => undefined)
-    }
-
     await sortMember($, id)
   })
 }
@@ -642,50 +650,61 @@ function stopTimers(): void {
 // Walks every scene in turn, so each animation can be seen without a task
 // that happens to raise it; the session's own scenes wait until it is through.
 // Between turns nothing ticks, so the demo starts the tick itself; the crab
-// at rest afterwards stops it again. The pane shows a sample crew meanwhile,
-// and closes again after if the demo opened it.
+// at rest afterwards stops it again. Near its end a sample crew comes to work,
+// which opens the pane, and the demo closes it again after if it opened it.
 async function playDemo($: EngineInterface): Promise<void> {
   demo?.cancel()
   demoCrewClock?.cancel()
   flush()
   let index = 0
+  let wasOpen = false
   paint($, DEMO[0] ?? 'idle', DEMO_DETAIL)
-  demoStarted = await $.clock.now()
-  const wasOpen = (await $.ui.panes().catch(() => [])).some(pane => pane.id === PANE)
-  await freshenPane($)
-  await $.ui.open({ id: PANE, title: PANE_TITLE }).catch(() => undefined)
   await startTicking($)
 
-  demoCrewClock = $.clock.every(CREW_CLOCK_MS, () => {
-    void freshenPane($).catch(() => undefined)
-  })
+  const end = () => {
+    demo?.cancel()
+    demo = undefined
+    demoCrewClock?.cancel()
+    demoCrewClock = undefined
+    const hadCrew = demoStarted !== undefined
+    demoStarted = undefined
+    restore($)
+    void update($, demoCrew, () => null)
+      .then(() => syncBand($))
+      .then(() => (!hadCrew || wasOpen ? undefined : $.ui.close({ id: PANE })))
+      .catch(() => undefined)
+  }
 
-  demo = $.clock.every(DEMO_MS, () => {
+  const crewUp = async () => {
+    demoStarted = await $.clock.now()
+    wasOpen = (await $.ui.panes().catch(() => [])).some(pane => pane.id === PANE)
+    await freshenPane($)
+    await $.ui.open({ id: PANE, title: PANE_TITLE }).catch(() => undefined)
+    demoCrewClock = $.clock.every(CREW_CLOCK_MS, () => {
+      void freshenPane($).catch(() => undefined)
+    })
+  }
+
+  const step = () => {
     index += 1
     const activity = DEMO[index]
 
     if (activity === undefined) {
-      demo?.cancel()
-      demo = undefined
-      demoCrewClock?.cancel()
-      demoCrewClock = undefined
-      demoStarted = undefined
-      restore($)
-      // A round that began meanwhile would have opened the pane by itself.
-      void update($, demoCrew, () => null)
-        .then(() => syncBand($))
-        .then(async () => {
-          const isKept = wasOpen || ((await read($, isCrewAuto)) && isCrewWorking(await read($, crew)))
-
-          return isKept ? undefined : $.ui.close({ id: PANE })
-        })
-        .catch(() => undefined)
+      end()
 
       return
     }
 
     paint($, activity, DEMO_DETAIL)
-  })
+
+    if (activity === 'delegating') {
+      void crewUp().catch(() => undefined)
+    }
+
+    demo = $.clock.after(activity === 'delegating' ? DEMO_CREW_MS : DEMO_MS, step)
+  }
+
+  demo = $.clock.after(DEMO_MS, step)
 }
 
 // A list with the id taken out, or put in where it was not.
@@ -820,12 +839,15 @@ function desktopTree(
   const { activity, detail } = shown
   const label = LABELS[activity]
 
+  // The desktop draws the band's drawings afresh whenever the pane redraws,
+  // every second while a crew works: they are drawn as far in as they have
+  // been running, since the scene began.
   return (
     <Box flexDirection="row" alignItems="center" gap={2} width="100%">
       <Box flexDirection="row" gap={0} flexShrink={0}>
-        <Svg source={crabSvg(activity)} alt="The Claude crab" width={CRAB_WIDTH} height={SCENE_HEIGHT} />
+        <Svg source={resumed(crabSvg(activity), (watch.now - watch.since) / 1000)} alt="The Claude crab" width={CRAB_WIDTH} height={SCENE_HEIGHT} />
         <Svg
-          source={propSvg(activity)}
+          source={resumed(propSvg(activity), (watch.now - watch.since) / 1000)}
           alt={detail === '' ? label : `${label}: ${detail}`}
           width={PROP_WIDTH}
           height={SCENE_HEIGHT}
@@ -861,8 +883,8 @@ export const register: Register = on => {
     await $.command.register({
       name: COMMAND,
       description:
-        'Hide or show the crab; "demo" plays every scene, "meter" shows or hides the shell, "details" its readings in figures, "commands" shows commands as typed, "crew" opens or closes the Crab crew pane, "crew auto" whether it opens by itself',
-      argumentHint: '[demo|meter|details|commands|crew|crew auto]',
+        'Hide or show the crab; "demo" plays every scene, "meter" shows or hides the shell, "details" its readings in figures, "commands" shows commands as typed, "crew" opens or closes the Crab crew pane',
+      argumentHint: '[demo|meter|details|commands|crew]',
     })
 
     // A reload in the middle of a turn finds the turn's scene in place and
@@ -902,22 +924,12 @@ export const register: Register = on => {
       return { text: 'The Crab crew pane is open: a card for every subagent Claude puts to work.' }
     }
 
-    if (argument === 'crew auto') {
-      const auto = await update($, isCrewAuto, value => !value)
-
-      return {
-        text: auto
-          ? 'The Crab crew pane now opens by itself when a new round of subagents starts.'
-          : 'The Crab crew pane no longer opens by itself. Watch crew in the band or /crab-cam crew opens it.',
-      }
-    }
-
     if (argument === 'demo') {
       await update($, isHidden, () => false)
       await playDemo($)
 
       return {
-        text: `The crab plays all ${DEMO.length} scenes, ${DEMO_MS / 1000} seconds each, with a sample crew in the Crab crew pane.`,
+        text: `The crab plays all ${DEMO.length} scenes, ${DEMO_MS / 1000} seconds each, with a sample crew in the Crab crew pane near the end.`,
       }
     }
 
@@ -1006,6 +1018,12 @@ export const register: Register = on => {
     // what the call is about, by block: the tool and what has arrived, until
     // it settles the scene.
     const arriving = new Map<number, { tool: string; json: string; activity?: Activity }>()
+    // The briefs of this response being written, by block.
+    const briefs = new Map<number, { tool: string; json: string }>()
+    const brief = () => {
+      briefedBefore = new Set(helpers.keys())
+      show($, 'briefing', clip(briefLine([...briefs.values()])))
+    }
     const raw = await read($, isRaw)
 
     for await (const chunk of next(e)) {
@@ -1024,12 +1042,29 @@ export const register: Register = on => {
         // What a command or an edit is about shows only in its arguments: the
         // scene waits for enough of them, rather than passing through a
         // generic one.
-        if (isToldByArgs(chunk.name)) {
+        if (isBrief(chunk.name)) {
+          briefs.set(chunk.index, { tool: chunk.name, json: '' })
+          brief()
+        } else if (isToldByArgs(chunk.name)) {
           arriving.set(chunk.index, { tool: chunk.name, json: '' })
         } else {
           show($, activityOf(chunk.name))
         }
       } else if (chunk.kind === 'input') {
+        const briefed = briefs.get(chunk.index)
+
+        if (briefed !== undefined) {
+          const line = briefLine([...briefs.values()])
+          briefs.set(chunk.index, { ...briefed, json: briefed.json + chunk.json })
+
+          if (briefLine([...briefs.values()]) !== line) {
+            brief()
+          }
+
+          yield chunk
+          continue
+        }
+
         const before = arriving.get(chunk.index)
 
         if (before !== undefined) {
@@ -1317,10 +1352,14 @@ export const register: Register = on => {
     // is on screen.
     const band = await read($, crewBand)
     const isOut = band.crabs.some(crab => crab.phase === 'working')
+    // Where no clock answers, the drawings start where they would anyway.
+    const now = await $.clock.now().catch(() => drawn?.at ?? 0)
+    drawn = drawn?.activity === shown.activity ? drawn : { activity: shown.activity, at: now }
     const watch: Watch = {
       band: isOut ? band : undefined,
       isOffered: isOut && !(await $.ui.panes().catch(() => [])).some(pane => pane.id === PANE && pane.isShown),
-      now: isOut ? await $.clock.now() : 0,
+      now,
+      since: drawn.at,
     }
 
     if (e.surface === 'terminal') {

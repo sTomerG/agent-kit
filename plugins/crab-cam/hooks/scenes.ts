@@ -309,9 +309,21 @@ export const SCENES: Record<Activity, () => Drawing> = {
       `<g>${slide('102 46;110 36;97 31;102 46', 3)}<path d="M0,0 L0,11 L3,8.2 L5.4,13 L7.4,12 L5,7.4 L9,7.4 Z" fill="${EYE}" stroke="${PAPER}" stroke-width="0.9"/></g>`,
   }),
 
+  briefing: () => ({
+    pose: WAVING,
+    prop:
+      `<rect x="60" y="10" width="28" height="40" rx="3" fill="#C9A06B" stroke="#9C7643" stroke-width="1.3"/>` +
+      `<rect x="63" y="14" width="22" height="33" rx="1.5" fill="${PAPER}" stroke="${LINE}" stroke-width="1"/>` +
+      `<rect x="67" y="7.5" width="14" height="6" rx="2" fill="${SLATE}"/>` +
+      [16, 12, 16].map((width, i) => bar(66, 20 + i * 7, width, LINE, loop('width', `0;0;${width};${width}`, 3, `keyTimes="0;${(i * 0.3).toFixed(1)};${(i * 0.3 + 0.3).toFixed(1)};1"`))).join('') +
+      helper(92, 6, 0, CREW_COLOURS[0]) +
+      helper(104, 22, 0.35, CREW_COLOURS[1]) +
+      helper(92, 38, 0.2, CREW_COLOURS[2]),
+  }),
+
   delegating: () => ({
     pose: WAVING,
-    prop: helper(66, 40, 0, CREW_COLOURS[0]) + helper(96, 40, 0.35, CREW_COLOURS[1]) + helper(81, 18, 0.2, CREW_COLOURS[2]),
+    prop: helper(66, 40, 0, CREW_COLOURS[0]) + helper(81, 18, 0.2, CREW_COLOURS[1]) + helper(96, 40, 0.35, CREW_COLOURS[2]),
   }),
 
   talking: () => ({
@@ -641,6 +653,7 @@ const PROPS: Record<Activity, readonly Frame[]> = {
     ['┌○○○──┐', '│█████│', '└─────┘'],
     ['┌○○○──┐', '│≡≡≡≡ │', '└─────┘'],
   ],
+  briefing: ['  ', '≡ ', '≡≡', '≡≡'].map((lines): Frame => ['┌┴┴┐ ▟█▙   ', `│${lines}│   ▟█▙ `, '└──┘ ▟█▙   ']),
   delegating: [
     ['           ', '▗▟█▙▖ ▗▟█▙▖', ' ▘ ▝   ▘ ▝ '],
     ['▗▟█▙▖      ', ' ▘ ▝  ▗▟█▙▖', '       ▘ ▝ '],

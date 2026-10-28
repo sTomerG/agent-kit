@@ -236,27 +236,14 @@ test('a subagent gets a card with its task, its time beside it, and its type, mo
   expect(after).toContain('0 of 1 running')
 })
 
-test('the pane stays closed as a round starts, until crew auto has it open by itself', async ($, on) => {
-  const listed = [running('h1', 'Review the diff', 'Explore'), running('h2', 'Fix the test', 'general-purpose')]
-  const { clock, opens } = session(on, listed)
-  let next = 'h1'
-  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: next }))
+test('the pane stays closed as a round starts', async ($, on) => {
+  const { clock, opens } = session(on, [running('h1', 'Review the diff', 'Explore')])
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'h1' }))
 
   await $.turn.start({ text: 'review it', turnId: 't1' })
   await spawn($, 'Review the diff', 'Explore')
   await clock.advance(0)
   expect(opens).toEqual([])
-
-  await helperEnds($, 'h1')
-  await command($, 'crew auto')
-  next = 'h2'
-  await spawn($, 'Fix the test', 'general-purpose')
-  await clock.advance(0)
-  expect(opens).toEqual(['crab-crew'])
-
-  const texts = await paneTexts($)
-  expect(texts).toContain('Fix the test')
-  expect(texts).not.toContain('Review the diff')
 })
 
 test('while a crew works, the band offers to watch it until the pane is open', async ($, on) => {
@@ -339,10 +326,16 @@ test('crew opens the pane and closes it again', async ($, on) => {
   expect(closes).toEqual(['crab-crew'])
 })
 
-test('the demo fills the pane with a sample crew, and closes the pane after', async ($, on) => {
-  const { clock, closes } = session(on)
+test('the demo brings on a sample crew near its end, which opens the pane, and closes it after', async ($, on) => {
+  const { clock, closes, opens } = session(on)
 
   await command($, 'demo')
+  await clock.advance(60_000)
+  expect(opens).toEqual([])
+
+  // The crew comes on after every other scene's three seconds but done's.
+  await clock.advance(12_000)
+  expect(opens).toEqual(['crab-crew'])
   const texts = await paneTexts($)
   expect(texts).toContain('Review the diff')
   expect(texts).toContain('⌄ Workflow · review-changes')
@@ -457,20 +450,6 @@ test('a helper that ends without an answer shows it stopped before it finished',
   expect(texts).toContain('Stopped before it finished')
   expect(texts.some(text => text.startsWith('✕ '))).toBe(true)
   expect(texts).toContain('0 of 1 running')
-})
-
-test('a round that starts during the demo keeps the pane open after it, with crew auto on', async ($, on) => {
-  const { clock, closes } = session(on, [running('h1', 'Review the diff', 'Explore')])
-  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'h1' }))
-
-  await command($, 'crew auto')
-  await command($, 'demo')
-  await $.turn.start({ text: 'review it', turnId: 't1' })
-  await spawn($, 'Review the diff', 'Explore')
-  await clock.advance(120_000)
-
-  expect(closes).toEqual([])
-  expect(await paneTexts($)).toContain('Review the diff')
 })
 
 test("a workflow's agents spawned under labels go by them, in the workflow's group", async ($, on) => {
