@@ -72,13 +72,19 @@ const DEMO: readonly Activity[] = [
 ]
 
 const scene = atom({ plugin: 'crab-cam', key: 'scene' } as const, { activity: 'idle', detail: '' })
-const isHidden = atom({ plugin: 'crab-cam', key: 'isHidden' } as const, false)
+// The switches /crab-cam sets. Each is kept in $.store too, under the key of
+// its state, so a new session starts with the choices the person made last.
+const HIDDEN = { plugin: 'crab-cam', key: 'isHidden' } as const
+const isHidden = atom(HIDDEN, false)
 const frame = atom({ plugin: 'crab-cam', key: 'frame' } as const, 0)
 const meter = atom({ plugin: 'crab-cam', key: 'meter' } as const, { context: null, fiveHour: null, week: null })
-const isMetered = atom({ plugin: 'crab-cam', key: 'isMetered' } as const, true)
-const isDetailed = atom({ plugin: 'crab-cam', key: 'isDetailed' } as const, false)
+const METERED = { plugin: 'crab-cam', key: 'isMetered' } as const
+const isMetered = atom(METERED, true)
+const DETAILED = { plugin: 'crab-cam', key: 'isDetailed' } as const
+const isDetailed = atom(DETAILED, false)
 // Whether a command shows as typed rather than by its description.
-const isRaw = atom({ plugin: 'crab-cam', key: 'isRaw' } as const, false)
+const RAW = { plugin: 'crab-cam', key: 'isRaw' } as const
+const isRaw = atom(RAW, false)
 const crew = atom({ plugin: 'crab-cam', key: 'crew' } as const, NO_CREW)
 const demoCrew = atom({ plugin: 'crab-cam', key: 'demoCrew' } as const, null as Crew | null)
 const crewView = atom({ plugin: 'crab-cam', key: 'crewView' } as const, { open: [], folded: [] } as CrewView)
@@ -873,6 +879,49 @@ function desktopTree(
   )
 }
 
+// Keeps a switch's new value for the next sessions, and hands it back.
+async function keep($: EngineInterface, key: string, value: boolean): Promise<boolean> {
+  await $.store.set(key, value).catch(() => undefined)
+
+  return value
+}
+
+// The value an earlier session kept for a switch, or undefined. A switch this
+// session set already (its version above 0) gets none, so a reload changes nothing.
+async function kept($: EngineInterface, key: string, version: number): Promise<boolean | undefined> {
+  if (version > 0) {
+    return undefined
+  }
+
+  const value = await $.store.get(key).catch(() => undefined)
+
+  return typeof value === 'boolean' ? value : undefined
+}
+
+// $.state.get and update take each switch as written, so each has its own lines.
+async function recall($: EngineInterface): Promise<void> {
+  const hidden = await kept($, 'isHidden', (await $.state.get(HIDDEN)).version)
+  const metered = await kept($, 'isMetered', (await $.state.get(METERED)).version)
+  const detailed = await kept($, 'isDetailed', (await $.state.get(DETAILED)).version)
+  const raw = await kept($, 'isRaw', (await $.state.get(RAW)).version)
+
+  if (hidden !== undefined) {
+    await update($, isHidden, () => hidden)
+  }
+
+  if (metered !== undefined) {
+    await update($, isMetered, () => metered)
+  }
+
+  if (detailed !== undefined) {
+    await update($, isDetailed, () => detailed)
+  }
+
+  if (raw !== undefined) {
+    await update($, isRaw, () => raw)
+  }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -881,6 +930,8 @@ export const register: Register = on => {
         'Hide or show the crab; "demo" plays every scene, "meter" shows or hides the shell, "details" its readings in figures, "commands" shows commands as typed, "crew" opens or closes the Crab crew pane',
       argumentHint: '[demo|meter|details|commands|crew]',
     })
+
+    await recall($)
 
     // A reload in the middle of a turn finds the turn's scene in place and
     // leaves it; only a scene that was on its way to rest is put to rest.
@@ -921,7 +972,7 @@ export const register: Register = on => {
     }
 
     if (argument === 'demo') {
-      await update($, isHidden, () => false)
+      await keep($, 'isHidden', await update($, isHidden, () => false))
       await playDemo($)
 
       return {
@@ -930,7 +981,7 @@ export const register: Register = on => {
     }
 
     if (argument === 'meter') {
-      const metered = await update($, isMetered, value => !value)
+      const metered = await keep($, 'isMetered', await update($, isMetered, value => !value))
 
       return {
         text: metered
@@ -940,10 +991,10 @@ export const register: Register = on => {
     }
 
     if (argument === 'details') {
-      const detailed = await update($, isDetailed, value => !value)
+      const detailed = await keep($, 'isDetailed', await update($, isDetailed, value => !value))
 
       if (detailed) {
-        await update($, isMetered, () => true)
+        await keep($, 'isMetered', await update($, isMetered, () => true))
       }
 
       return {
@@ -954,7 +1005,7 @@ export const register: Register = on => {
     }
 
     if (argument === 'commands') {
-      const raw = await update($, isRaw, value => !value)
+      const raw = await keep($, 'isRaw', await update($, isRaw, value => !value))
 
       return {
         text: raw
@@ -963,7 +1014,7 @@ export const register: Register = on => {
       }
     }
 
-    const hidden = await update($, isHidden, value => !value)
+    const hidden = await keep($, 'isHidden', await update($, isHidden, value => !value))
 
     return { text: hidden ? 'The crab is hidden. Type /crab-cam to bring it back.' : 'The crab is back.' }
   })

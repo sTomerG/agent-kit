@@ -28,6 +28,8 @@ To get new versions, run `claude plugin update crab-cam@agent-kit`, or enable au
 | `/crab-cam commands` | Show commands as typed, or go back to the description of what they do |
 | `/crab-cam crew` | Open or close the Crab crew pane |
 
+The choices for the crab, `meter`, `details` and `commands` stay in effect: a new session starts with the choices you made last.
+
 ## Scenes
 
 The scene follows the tool Claude calls. A shell command is read for what it does, so `cat` shows reading and `cd repo && git status` shows git.
