@@ -1,0 +1,25 @@
+name: Draft releases
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/*/.claude-plugin/plugin.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Two pushes close together must not both draft the same release.
+concurrency: draft-releases
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: .github/scripts/draft-releases.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
